@@ -336,8 +336,15 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
     if search_intent == "on":
         ai_search[user_id] = True
         touch_user_state(user_id)
-        await bot.send_message(chat_id=chat_id, text=SEARCH_ON_MSG)
-        return
+        # Cek apakah ada query search yang sebenarnya (bukan cuma keyword toggle)
+        query_words = re.sub(r"(berita|cari di google|search|google|goggle|cari informasi|searching|cari online)", "", text, flags=re.IGNORECASE).strip()
+        if len(query_words) > 5:
+            # Ada query search, langsung search (jangan return)
+            logger.info(f"Search mode ON + search: '{text}'")
+        else:
+            # Cuma keyword toggle, kirim pesan ON
+            await bot.send_message(chat_id=chat_id, text=SEARCH_ON_MSG)
+            return
     elif search_intent == "off":
         ai_search[user_id] = False
         touch_user_state(user_id)
