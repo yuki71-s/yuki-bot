@@ -4,3 +4,4 @@ __pycache__/
 *.pyc
 *.pyo
 service_account.json
+yuki-ai-server/
