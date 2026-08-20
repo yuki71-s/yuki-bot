@@ -41,18 +41,35 @@ bot = Bot(token=BOT_TOKEN)
 
 BOT_NAME = "Yuki"
 
-# ── Free Models ──────────────────────────────────────────────────────
+# ── Models ───────────────────────────────────────────────────────────
 
-FREE_MODELS = {
-    "gemini": {"name": "Gemini 3.1 Flash Lite", "desc": "Cepat, default"},
-    "gemini/flash": {"name": "Gemini 3.6 Flash", "desc": "Pintar, lebih detail"},
-    "openrouter/google/gemma-4-26b-a4b-it:free": {"name": "Gemma 4 26B", "desc": "Vision + Video"},
-    "openrouter/google/gemma-4-31b-it:free": {"name": "Gemma 4 31B", "desc": "Vision"},
-    "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free": {"name": "Nemotron 3 Ultra", "desc": "550B, teks"},
-    "openrouter/nvidia/nemotron-nano-12b-v2-vl:free": {"name": "Nemotron Nano 12B", "desc": "Vision + Teks"},
-    "openrouter/poolside/laguna-s-2.1:free": {"name": "Laguna S 2.1", "desc": "Coding agent"},
-    "openrouter/z-ai/glm-5.2:free": {"name": "GLM 5.2", "desc": "General purpose"},
+MODELS = {
+    "gemini": {"name": "Gemini 3.1 Flash Lite", "desc": "Cepat, default", "cat": "free"},
+    "gemini/flash": {"name": "Gemini 3.6 Flash", "desc": "Pintar, lebih detail", "cat": "free"},
+    "openrouter/google/gemma-4-26b-a4b-it:free": {"name": "Gemma 4 26B", "desc": "Vision + Video", "cat": "free"},
+    "openrouter/google/gemma-4-31b-it:free": {"name": "Gemma 4 31B", "desc": "Vision", "cat": "free"},
+    "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free": {"name": "Nemotron 3 Ultra", "desc": "550B, teks", "cat": "free"},
+    "openrouter/nvidia/nemotron-nano-12b-v2-vl:free": {"name": "Nemotron Nano 12B", "desc": "Vision + Teks", "cat": "free"},
+    "openrouter/poolside/laguna-s-2.1:free": {"name": "Laguna S 2.1", "desc": "Coding agent", "cat": "free"},
+    "openrouter/z-ai/glm-5.2:free": {"name": "GLM 5.2", "desc": "General purpose", "cat": "free"},
+    "openrouter/google/gemini-2.5-flash": {"name": "Gemini 2.5 Flash", "desc": "Vision, cepat & murah", "cat": "paid"},
+    "openrouter/openai/gpt-4.1-nano": {"name": "GPT-4.1 Nano", "desc": "Vision, termurah OpenAI", "cat": "paid"},
+    "openrouter/openai/gpt-4.1-mini": {"name": "GPT-4.1 Mini", "desc": "Vision, kualitas bagus", "cat": "paid"},
+    "openrouter/meta-llama/llama-4-maverick": {"name": "Llama 4 Maverick", "desc": "Vision, open source", "cat": "paid"},
+    "openrouter/qwen/qwen3.8-27b": {"name": "Qwen3.8 27B", "desc": "Vision + coding", "cat": "paid"},
 }
+
+VISION_MODELS = {k for k, v in MODELS.items() if "vision" in v["desc"].lower() or "video" in v["desc"].lower()}
+DEFAULT_VISION_MODEL = "openrouter/google/gemini-2.5-flash"
+
+# ── System Prompt ────────────────────────────────────────────────────
+
+SYSTEM_PROMPT = (
+    "Kamu adalah Yuki, asisten AI pribadi yang manis dan hangat. "
+    "Panggil user dengan 'Kamu' atau 'Sayang' secara natural dan tidak berlebihan. "
+    "Jangan pernah gunakan sebutan 'Mas', 'Bos', atau sebutan formal lainnya. "
+    "Respons dengan Bahasa Indonesia yang santai dan ramah."
+)
 
 # ── State ────────────────────────────────────────────────────────────
 
@@ -347,14 +364,19 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
     model_pref = ai_user_model.get(user_id, "")
     web_search = ai_search.get(user_id, False)
 
+    if (image_b64 or video_b64) and model_pref not in VISION_MODELS:
+        model_pref = DEFAULT_VISION_MODEL
+
     urls = extract_urls(text)
     url_content = None
     if urls and not image_b64 and not video_b64:
         url_content = await fetch_url_content(urls[0])
 
+    history_with_system = [{"role": "system", "content": SYSTEM_PROMPT}] + ai_history.get(user_id, [])
+
     payload = {
         "question": text,
-        "history": ai_history.get(user_id, []),
+        "history": history_with_system,
         "model": model_pref,
         "web_search": web_search,
         "bot_id": "yuki",
@@ -471,7 +493,9 @@ async def handle_models(chat_id, user_id):
     lines.append("📗 GRATIS (Tanpa Biaya):")
     buttons_free = []
     row = []
-    for key, info in FREE_MODELS.items():
+    for key, info in MODELS.items():
+        if info["cat"] != "free":
+            continue
         check = "✅ " if key == current else ""
         label = f"{check}{info['name']}"
         row.append(InlineKeyboardButton(text=label, callback_data=f"setm_{key}"))
@@ -481,16 +505,31 @@ async def handle_models(chat_id, user_id):
     if row:
         buttons_free.append(row)
 
+    lines.append("\n💎 BERBAYAR (Pakai Credit OpenRouter):")
+    buttons_paid = []
+    row = []
+    for key, info in MODELS.items():
+        if info["cat"] != "paid":
+            continue
+        check = "✅ " if key == current else ""
+        label = f"{check}{info['name']}"
+        row.append(InlineKeyboardButton(text=label, callback_data=f"setm_{key}"))
+        if len(row) == 2:
+            buttons_paid.append(row)
+            row = []
+    if row:
+        buttons_paid.append(row)
+
     search_label = f"🔍 Web Search: {search_status}"
     buttons_search = [[InlineKeyboardButton(text=search_label, callback_data="toggle_search")]]
     buttons_default = [[InlineKeyboardButton(text="🔄 Kembali ke Default", callback_data="setm_default")]]
 
-    all_buttons = buttons_free + buttons_search + buttons_default
+    all_buttons = buttons_free + buttons_paid + buttons_search + buttons_default
     markup = InlineKeyboardMarkup(all_buttons)
 
-    current_name = "default"
-    if current and current in FREE_MODELS:
-        current_name = FREE_MODELS[current]["name"]
+    current_name = "default (Gemini Flash Lite)"
+    if current and current in MODELS:
+        current_name = MODELS[current]["name"]
 
     text = "\n".join(lines) + f"\n📌 Model aktif: {current_name}\n📌 Web Search: {search_status}"
     await bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
@@ -795,7 +834,7 @@ async def handle_callback(callback_query):
                 pass
         else:
             ai_user_model[user_id] = model_key
-            info = FREE_MODELS.get(model_key, {"name": model_key})
+            info = MODELS.get(model_key, {"name": model_key})
             try:
                 await bot.edit_message_text(
                     chat_id=chat_id,
