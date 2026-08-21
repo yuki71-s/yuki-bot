@@ -793,6 +793,10 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
         if len(ai_history[user_id]) > AI_MAX_HISTORY:
             ai_history[user_id] = ai_history[user_id][-AI_MAX_HISTORY:]
 
+    model_pref = ai_user_model.get(user_id, "")
+    web_search = ai_search.get(user_id, False)
+    search_engine = ai_search_engine.get(user_id, "tinyfish") if web_search else "tinyfish"
+
     # Determine thinking context
     if skill_intent in ["extract", "crawl"]:
         thinking_context = skill_intent
@@ -812,10 +816,6 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
         thinking_msg = await bot.send_message(chat_id=chat_id, text=get_thinking_msg(thinking_context))
     except TelegramError as e:
         logger.error(f"Failed to send thinking message: {e}")
-
-    model_pref = ai_user_model.get(user_id, "")
-    web_search = ai_search.get(user_id, False)
-    search_engine = ai_search_engine.get(user_id, "tinyfish") if web_search else "tinyfish"
 
     if (image_b64 or video_b64) and model_pref not in VISION_MODELS:
         model_pref = DEFAULT_VISION_MODEL
