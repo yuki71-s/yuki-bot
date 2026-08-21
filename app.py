@@ -715,8 +715,32 @@ async def lifespan(app):
         logger.error(f"Bot init error: {e}")
         raise
     task = asyncio.create_task(cleanup_stale_state())
+    poll_task = asyncio.create_task(polling_loop())
     yield
     task.cancel()
+    poll_task.cancel()
+
+
+async def polling_loop():
+    """Long-polling loop — no webhook/SSL needed."""
+    offset = -1
+    logger.info("Polling loop started")
+    while True:
+        try:
+            updates = await bot.get_updates(
+                offset=offset,
+                timeout=30,
+                allowed_updates=["message", "callback_query"],
+            )
+            for update in updates:
+                offset = update.update_id + 1
+                try:
+                    await route_update(update)
+                except Exception as e:
+                    logger.error(f"Error processing update {update.update_id}: {e}", exc_info=True)
+        except Exception as e:
+            logger.error(f"Polling error: {e}")
+            await asyncio.sleep(5)
 
 app = FastAPI(lifespan=lifespan)
 
