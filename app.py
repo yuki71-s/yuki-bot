@@ -62,15 +62,6 @@ MODELS = {
 VISION_MODELS = {k for k, v in MODELS.items() if "vision" in v["desc"].lower() or "video" in v["desc"].lower()}
 DEFAULT_VISION_MODEL = "openrouter/google/gemini-2.5-flash"
 
-# ── System Prompt ────────────────────────────────────────────────────
-
-SYSTEM_PROMPT = (
-    "Kamu adalah Yuki, asisten AI pribadi yang manis dan hangat. "
-    "Panggil user dengan 'Kamu' atau 'Sayang' secara natural dan tidak berlebihan. "
-    "Jangan pernah gunakan sebutan 'Mas', 'Bos', atau sebutan formal lainnya. "
-    "Respons dengan Bahasa Indonesia yang santai dan ramah."
-)
-
 # ── State ────────────────────────────────────────────────────────────
 
 MAX_MSG_LEN = 4096
@@ -219,8 +210,11 @@ async def cleanup_stale_state():
             ai_history.pop(uid, None)
             ai_user_model.pop(uid, None)
             ai_search.pop(uid, None)
+            ai_search_engine.pop(uid, None)
             ai_pending_photo.pop(uid, None)
             ai_pending_video.pop(uid, None)
+            ai_tavily_topic.pop(uid, None)
+            ai_tavily_depth.pop(uid, None)
             _state_timestamps.pop(uid, None)
             _rate_limit.pop(uid, None)
             _user_locks.pop(uid, None)
@@ -280,10 +274,14 @@ ai_tavily_topic: dict[int, str] = {}   # "news" atau "general"
 ai_tavily_depth: dict[int, str] = {}   # "advanced", "basic", "fast", "ultra-fast"
 
 SEARCH_KEYWORDS = [
-    r"\bcari di google\b", r"\bsearch\b", r"\bberita\b", r"\bgoggle\b",
+    r"\bcari di google\b", r"\bberita\b", r"\bgoggle\b",
     r"\bgoogle\b", r"\bcari informasi\b", r"\bsearching\b", r"\bcari online\b",
-    r"\bcari\b", r"\bcarikan\b", r"\bmlink\b", r"\byoutube\b", r"\bvideo\b",
+    r"\bcari\s+(?:di|info|tahu|tau|tentang|soal|perihal)\b",
+    r"\b(?:bantu|bantuin)\s*(?:cari|carikan)\b",
+    r"\bada\s+(?:berita|info|data|fakta)\b",
+    r"\bmlink\b", r"\byoutube\b", r"\bvideo\b",
     r"\bwatch\b", r"\blink\b", r"\bsumber\b", r"\breferensi\b",
+    r"\bsearch\b", r"\bsearching\b",
 ]
 SEARCH_END_KEYWORDS = [
     r"\bselesai search\b", r"\budah search\b", r"\bstop search\b",
@@ -511,7 +509,7 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
     if urls and not image_b64 and not video_b64:
         url_content = await fetch_url_content(urls[0])
 
-    history_with_system = [{"role": "system", "content": SYSTEM_PROMPT}] + ai_history.get(user_id, [])[:-1]
+    history_with_system = ai_history.get(user_id, [])[:-1]
 
     payload = {
         "question": text,
