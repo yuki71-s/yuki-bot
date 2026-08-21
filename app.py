@@ -379,7 +379,7 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
     if urls and not image_b64 and not video_b64:
         url_content = await fetch_url_content(urls[0])
 
-    history_with_system = [{"role": "system", "content": SYSTEM_PROMPT}] + ai_history.get(user_id, [])
+    history_with_system = [{"role": "system", "content": SYSTEM_PROMPT}] + ai_history.get(user_id, [])[:-1]
 
     payload = {
         "question": text,
