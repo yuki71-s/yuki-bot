@@ -5,6 +5,7 @@ import asyncio
 import base64
 import json
 import time
+import random
 import socket
 import ipaddress
 from urllib.parse import urlparse
@@ -528,7 +529,52 @@ SEARCH_ON_MSG = "oke sayang, aku ganti ke model yang bisa search ya~ 🔍 Coba t
 SEARCH_OFF_MSG = "oke sayang, search udahan ya~ Kembali normal~ ✨"
 TAVILY_ON_MSG = "🔍 Tavily Search ON! Pilih setting dulu ya sayang~"
 TINY_ON_MSG = "🔍 TinyFish Search ON! (gratis, quick search) ✅"
-THINKING_MSG = "🤖 Yuki sedang berpikir..."
+
+def get_thinking_msg(context="normal"):
+    """Return dynamic thinking message based on context."""
+    if context == "search_tinyfish":
+        return random.choice([
+            "🔍 Yuki sedang cari info dulu ya~",
+            "Tunggu sebentar, lagi search~ 🔍",
+            "Yuki browsing dulu~",
+            "Sebentar ya sayang, lagi cari data~ 🐟",
+        ])
+    elif context == "search_tavily":
+        return random.choice([
+            "🌐 Yuki lagi cari berita nih~",
+            "Sebentar, lagi riset~ 🌐",
+            "Yuki cek dulu ya~",
+            "Tunggu sebentar, lagi browsing~ 🔎",
+        ])
+    elif context == "extract":
+        return random.choice([
+            "📖 Yuki lagi baca nih~",
+            "Sebentar, lagi extract info~",
+            "Yuki analisis dulu ya~ 📄",
+        ])
+    elif context == "crawl":
+        return random.choice([
+            "🕷️ Yuki lagi crawl nih~",
+            "Sebentar ya, lagi baca halaman~",
+            "Yuki sedang scraping~ tunggu ya~",
+        ])
+    elif context == "research":
+        return "🔬 Yuki lagi riset nih~ tunggu ya~"
+    elif context == "vision":
+        return random.choice([
+            "👀 Yuki lagi lihat nih~",
+            "Sebentar, lagi analisis gambar~",
+            "Yuki perhatiin dulu ya~ 👁️",
+        ])
+    else:
+        return random.choice([
+            "Yuki sedang mengetik~",
+            "Sebentar ya sayang~",
+            "Bentar~",
+            "Yuki mikir dulu ya~",
+            "Tunggu sebentar~ 💭",
+            "Yuki jawab dulu ya~",
+        ])
 
 # Per-user Tavily settings: topic + depth
 ai_tavily_topic: dict[int, str] = {}   # "news" atau "general"
@@ -752,9 +798,23 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
         if len(ai_history[user_id]) > AI_MAX_HISTORY:
             ai_history[user_id] = ai_history[user_id][-AI_MAX_HISTORY:]
 
+    # Determine thinking context
+    if skill_intent in ["extract", "crawl"]:
+        thinking_context = skill_intent
+    elif skill_intent == "research":
+        thinking_context = "research"
+    elif image_b64 or video_b64:
+        thinking_context = "vision"
+    elif web_search and search_engine == "tavily":
+        thinking_context = "search_tavily"
+    elif web_search:
+        thinking_context = "search_tinyfish"
+    else:
+        thinking_context = "normal"
+
     thinking_msg = None
     try:
-        thinking_msg = await bot.send_message(chat_id=chat_id, text=THINKING_MSG)
+        thinking_msg = await bot.send_message(chat_id=chat_id, text=get_thinking_msg(thinking_context))
     except TelegramError as e:
         logger.error(f"Failed to send thinking message: {e}")
 
