@@ -275,17 +275,40 @@ THINKING_MSG = "🤖 Yuki sedang berpikir..."
 SEARCH_KEYWORDS = [
     r"\bcari di google\b", r"\bsearch\b", r"\bberita\b", r"\bgoggle\b",
     r"\bgoogle\b", r"\bcari informasi\b", r"\bsearching\b", r"\bcari online\b",
+    r"\bcari\b", r"\bcarikan\b", r"\bmlink\b", r"\byoutube\b", r"\bvideo\b",
+    r"\bwatch\b", r"\blink\b", r"\bsumber\b", r"\breferensi\b",
 ]
 SEARCH_END_KEYWORDS = [
     r"\bselesai search\b", r"\budah search\b", r"\bstop search\b",
     r"\bcukup search\b", r"\budah ya\b", r"\bselesai ya\b", r"\budahan\b",
 ]
+SEARCH_ENGINE_ON_KEYWORDS = [
+    r"\byuki,?\s*search\s*engine\s*on\b",
+    r"\byuki,?\s*nyalain?\s*search\b",
+    r"\byuki,?\s*aktifin?\s*search\b",
+    r"\byuki,?\s*search\s*on\b",
+]
+SEARCH_ENGINE_OFF_KEYWORDS = [
+    r"\byuki,?\s*search\s*engine\s*off\b",
+    r"\byuki,?\s*matiin?\s*search\b",
+    r"\byuki,?\s*nonaktifin?\s*search\b",
+    r"\byuki,?\s*search\s*off\b",
+]
 
 def detect_search_intent(text):
     lower = text.lower()
+    # Cek command khusus On/Off dulu
+    for kw in SEARCH_ENGINE_OFF_KEYWORDS:
+        if re.search(kw, lower):
+            return "off"
+    for kw in SEARCH_ENGINE_ON_KEYWORDS:
+        if re.search(kw, lower):
+            return "on"
+    # Cek end keywords
     for kw in SEARCH_END_KEYWORDS:
         if re.search(kw, lower):
             return "off"
+    # Cek search keywords
     for kw in SEARCH_KEYWORDS:
         if re.search(kw, lower):
             return "on"
@@ -336,15 +359,17 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
     if search_intent == "on":
         ai_search[user_id] = True
         touch_user_state(user_id)
-        # Cek apakah ada query search yang sebenarnya (bukan cuma keyword toggle)
-        query_words = re.sub(r"(berita|cari di google|search|google|goggle|cari informasi|searching|cari online)", "", text, flags=re.IGNORECASE).strip()
-        if len(query_words) > 5:
-            # Ada query search, langsung search (jangan return)
-            logger.info(f"Search mode ON + search: '{text}'")
-        else:
-            # Cuma keyword toggle, kirim pesan ON
+        # Cek apakah ini command khusus "Yuki, search Engine On" (tanpa query)
+        is_engine_command = bool(re.search(
+            r"yuki,?\s*search\s*engine\s*on|yuki,?\s*nyalain?\s*search|yuki,?\s*aktifin?\s*search|yuki,?\s*search\s*on",
+            text.lower()
+        ))
+        if is_engine_command:
+            # Cuma command toggle, kirim pesan ON
             await bot.send_message(chat_id=chat_id, text=SEARCH_ON_MSG)
             return
+        # Query lain (carikan, berita, youtube, dll) → langsung search
+        logger.info(f"Search mode ON + search: '{text}'")
     elif search_intent == "off":
         ai_search[user_id] = False
         touch_user_state(user_id)
