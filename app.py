@@ -84,6 +84,7 @@ CLEANUP_INTERVAL = 300
 ai_history: dict[int, list] = {}
 ai_user_model: dict[int, str] = {}
 ai_search: dict[int, bool] = {}
+ai_search_engine: dict[int, str] = {}  # "tinyfish" atau "tavily"
 ai_pending_photo: dict[int, str] = {}
 ai_pending_video: dict[int, str] = {}
 
@@ -302,13 +303,29 @@ SEARCH_ENGINE_OFF_KEYWORDS = [
     r"\byuki,?\s*nonaktifin?\s*search\b",
     r"\byuki,?\s*search\s*off\b",
 ]
+SEARCH_ENGINE_1_KEYWORDS = [  # TinyFish (quick, gratis)
+    r"\byuki,?\s*search\s*engine\s*1\b",
+    r"\byuki,?\s*search\s*engine\s*tinyfish\b",
+    r"\byuki,?\s*search\s*quick\b",
+]
+SEARCH_ENGINE_2_KEYWORDS = [  # Tavily (deep, 1-2 credits)
+    r"\byuki,?\s*search\s*engine\s*2\b",
+    r"\byuki,?\s*search\s*engine\s*tavily\b",
+    r"\byuki,?\s*search\s*deep\b",
+]
 
 def detect_search_intent(text):
     lower = text.lower()
-    # Cek command khusus On/Off dulu
+    # Cek command khusus On/Off/Engine dulu
     for kw in SEARCH_ENGINE_OFF_KEYWORDS:
         if re.search(kw, lower):
             return "off"
+    for kw in SEARCH_ENGINE_1_KEYWORDS:
+        if re.search(kw, lower):
+            return "engine1"
+    for kw in SEARCH_ENGINE_2_KEYWORDS:
+        if re.search(kw, lower):
+            return "engine2"
     for kw in SEARCH_ENGINE_ON_KEYWORDS:
         if re.search(kw, lower):
             return "on"
@@ -391,6 +408,18 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
         touch_user_state(user_id)
         await bot.send_message(chat_id=chat_id, text=SEARCH_OFF_MSG)
         return
+    elif search_intent == "engine1":
+        ai_search[user_id] = True
+        ai_search_engine[user_id] = "tinyfish"
+        touch_user_state(user_id)
+        await bot.send_message(chat_id=chat_id, text="🔍 Search engine: TinyFish (quick, gratis) ✅")
+        return
+    elif search_intent == "engine2":
+        ai_search[user_id] = True
+        ai_search_engine[user_id] = "tavily"
+        touch_user_state(user_id)
+        await bot.send_message(chat_id=chat_id, text="🔍 Search engine: Tavily (deep, hasil lebih bagus) ✅")
+        return
 
     lock = _user_locks[user_id]
     async with lock:
@@ -411,7 +440,7 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
 
     model_pref = ai_user_model.get(user_id, "")
     web_search = ai_search.get(user_id, False)
-    search_depth = detect_search_depth(text) if web_search else "quick"
+    search_engine = ai_search_engine.get(user_id, "tinyfish") if web_search else "tinyfish"
 
     if (image_b64 or video_b64) and model_pref not in VISION_MODELS:
         model_pref = DEFAULT_VISION_MODEL
@@ -428,7 +457,7 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
         "history": history_with_system,
         "model": model_pref,
         "web_search": web_search,
-        "search_depth": search_depth,
+        "search_engine": search_engine,
         "bot_id": "yuki",
     }
     if image_b64:
@@ -900,7 +929,12 @@ async def handle_callback(callback_query):
         await bot.answer_callback_query(callback_query.id)
         user_id = callback_query.from_user.id
         ai_search[user_id] = not ai_search.get(user_id, False)
-        status = "ON 🟢" if ai_search[user_id] else "OFF ⚪"
+        if ai_search[user_id]:
+            engine = ai_search_engine.get(user_id, "tinyfish")
+            engine_name = "Tavily (deep)" if engine == "tavily" else "TinyFish (quick)"
+            status = f"ON 🟢 [{engine_name}]"
+        else:
+            status = "OFF ⚪"
         try:
             await bot.edit_message_text(
                 chat_id=chat_id,
