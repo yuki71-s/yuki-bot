@@ -31,22 +31,36 @@ echo -e "${GREEN}✓ Dependencies installed${NC}"
 
 # ── Step 3: Clone Repositories ──
 echo -e "${YELLOW}[3/10] Cloning yuki-bot repositories...${NC}"
+
+# Clean slate — remove old install if exists
+rm -rf /opt/yuki-bot
 mkdir -p /opt/yuki-bot
 cd /opt/yuki-bot
 
-# Clone bot
-if [ ! -d ".git" ]; then
-    git clone https://github.com/yuki71-s/yuki-bot.git .
-else
-    git pull origin master
+# Clone bot repo
+echo -e "  → Cloning yuki-bot..."
+if ! git clone https://github.com/yuki71-s/yuki-bot.git . 2>&1; then
+    echo -e "${RED}  ✗ Failed to clone yuki-bot! Check repo URL.${NC}"
+    exit 1
 fi
 
-# Clone AI server
-if [ ! -d "yuki-ai-server" ]; then
-    git clone https://github.com/yuki71-s/yuki-ai-server.git yuki-ai-server
-else
-    cd yuki-ai-server && git pull origin master && cd ..
+# Clone AI server repo
+echo -e "  → Cloning yuki-ai-server..."
+if ! git clone https://github.com/yuki71-s/yuki-ai-server.git yuki-ai-server 2>&1; then
+    echo -e "${RED}  ✗ Failed to clone yuki-ai-server! Check repo URL.${NC}"
+    exit 1
 fi
+
+# Verify requirements.txt exist
+if [ ! -f "requirements.txt" ]; then
+    echo -e "${RED}  ✗ requirements.txt not found in /opt/yuki-bot/${NC}"
+    exit 1
+fi
+if [ ! -f "yuki-ai-server/requirements.txt" ]; then
+    echo -e "${RED}  ✗ requirements.txt not found in /opt/yuki-bot/yuki-ai-server/${NC}"
+    exit 1
+fi
+
 echo -e "${GREEN}✓ Repositories cloned${NC}"
 
 # ── Step 4: Setup Virtual Environments ──
