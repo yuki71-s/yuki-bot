@@ -163,7 +163,15 @@ EOF
 
 # Test nginx config
 if nginx -t 2>&1; then
-    systemctl reload nginx
+    # Try systemctl first, fallback to direct nginx reload
+    if systemctl is-active --quiet nginx 2>/dev/null; then
+        systemctl reload nginx
+    elif systemctl start nginx 2>/dev/null; then
+        systemctl enable nginx
+    else
+        # AaPanel Nginx — reload directly
+        nginx -s reload 2>/dev/null || nginx 2>/dev/null || true
+    fi
     echo -e "${GREEN}✓ Nginx configured${NC}"
 else
     echo -e "${RED}✗ Nginx config error!${NC}"
