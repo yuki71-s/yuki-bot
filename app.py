@@ -534,47 +534,42 @@ def get_thinking_msg(context="normal"):
     """Return dynamic thinking message based on context."""
     if context == "search_tinyfish":
         return random.choice([
-            "🔍 Yuki sedang cari info dulu ya~",
-            "Tunggu sebentar, lagi search~ 🔍",
-            "Yuki browsing dulu~",
-            "Sebentar ya sayang, lagi cari data~ 🐟",
+            "Aku cari dulu ya sayang~ 🔍",
+            "Bentar sayang, aku search dulu ya",
+            "Sebentar ya sayang~",
         ])
     elif context == "search_tavily":
         return random.choice([
-            "🌐 Yuki lagi cari berita nih~",
-            "Sebentar, lagi riset~ 🌐",
-            "Yuki cek dulu ya~",
-            "Tunggu sebentar, lagi browsing~ 🔎",
+            "Aku cek berita dulu ya sayang~ 🌐",
+            "Bentar, aku browse dulu~",
+            "Tunggu sebentar ya sayang~",
         ])
     elif context == "extract":
         return random.choice([
-            "📖 Yuki lagi baca nih~",
-            "Sebentar, lagi extract info~",
-            "Yuki analisis dulu ya~ 📄",
+            "Aku baca dulu ya sayang~ 📖",
+            "Bentar, aku extract info dulu~",
+            "Sebentar ya sayang~",
         ])
     elif context == "crawl":
         return random.choice([
-            "🕷️ Yuki lagi crawl nih~",
-            "Sebentar ya, lagi baca halaman~",
-            "Yuki sedang scraping~ tunggu ya~",
+            "Aku crawl dulu ya sayang~ 🔍",
+            "Bentar, aku baca halaman dulu~",
+            "Sebentar ya sayang~",
         ])
     elif context == "research":
-        return "🔬 Yuki lagi riset nih~ tunggu ya~"
+        return random.choice([
+            "Aku riset dulu ya sayang~ 🔬",
+            "Bentar, aku cari data dulu~",
+            "Tunggu sebentar ya sayang~",
+        ])
     elif context == "vision":
         return random.choice([
-            "👀 Yuki lagi lihat nih~",
-            "Sebentar, lagi analisis gambar~",
-            "Yuki perhatiin dulu ya~ 👁️",
+            "Aku liat dulu ya sayang~ 👀",
+            "Bentar, aku analisis dulu~",
+            "Sebentar ya sayang~",
         ])
     else:
-        return random.choice([
-            "Yuki sedang mengetik~",
-            "Sebentar ya sayang~",
-            "Bentar~",
-            "Yuki mikir dulu ya~",
-            "Tunggu sebentar~ 💭",
-            "Yuki jawab dulu ya~",
-        ])
+        return "Sedang mengetik..."
 
 # Per-user Tavily settings: topic + depth
 ai_tavily_topic: dict[int, str] = {}   # "news" atau "general"
