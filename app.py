@@ -309,6 +309,34 @@ SEARCH_ENGINE_OFF_KEYWORDS = [
     r"\byuki,?\s*search\s*off\b",
 ]
 
+# ── Skill Keywords ─────────────────────────────────────────────────
+TRANSLATE_KEYWORDS = [
+    r"\btranslate\b", r"\bterjemah\b", r"\bterjemahin\b", r"\btranslate\s*ini\b",
+    r"\bke\s*(?:bahasa|inggris|jepang|korea|arab|jawa|sunda|mandarin)\b",
+    r"\bbahasa\s*(?:inggris|jepang|korea|arab|jawa|sunda|mandarin)\b",
+]
+SUMMARIZE_KEYWORDS = [
+    r"\bsummarize\b", r"\bringkas\b", r"\bringkasin\b", r"\bringkas\s*ini\b",
+    r"\bsummary\b", r"\btldr\b", r"\binti\s*nya\b",
+]
+WRITE_KEYWORDS = [
+    r"\btulis\b", r"\btuliskan\b", r"\bwrite\b", r"\bcompose\b",
+    r"\bbuat\s*(?:cerita|surat|puisi|essay|artikel)\b",
+    r"\bcerita\s*pendek\b", r"\bshort\s*story\b",
+]
+EXTRACT_KEYWORDS = [
+    r"\bextract\b", r"\bambil\s*isi\b", r"\bambil\s*konten\b",
+    r"\bdownload\s*isi\b", r"\bsalin\s*isi\b",
+]
+CRAWL_KEYWORDS = [
+    r"\bcrawl\b", r"\bscan\s*website\b", r"\bdownload\s*semua\b",
+    r"\ambil\s*semua\s*halaman\b",
+]
+RESEARCH_KEYWORDS = [
+    r"\bresearch\b", r"\briset\b", r"\briset\b",
+    r"\bdeep\s*search\b", r"\bpenelitian\b", r"\banalisis\s*deep\b",
+]
+
 def detect_search_intent(text):
     lower = text.lower()
     # Cek command khusus Off dulu
@@ -331,6 +359,37 @@ def detect_search_intent(text):
     for kw in SEARCH_KEYWORDS:
         if re.search(kw, lower):
             return "on"
+    return None
+
+def detect_skill_intent(text):
+    """Detect if user wants a specific skill."""
+    lower = text.lower()
+    # Cek extract (harus ada URL)
+    urls = extract_urls(text)
+    if urls:
+        for kw in EXTRACT_KEYWORDS:
+            if re.search(kw, lower):
+                return "extract"
+    # Cek crawl
+    for kw in CRAWL_KEYWORDS:
+        if re.search(kw, lower):
+            return "crawl"
+    # Cek research
+    for kw in RESEARCH_KEYWORDS:
+        if re.search(kw, lower):
+            return "research"
+    # Cek translate
+    for kw in TRANSLATE_KEYWORDS:
+        if re.search(kw, lower):
+            return "translate"
+    # Cek summarize
+    for kw in SUMMARIZE_KEYWORDS:
+        if re.search(kw, lower):
+            return "summarize"
+    # Cek write
+    for kw in WRITE_KEYWORDS:
+        if re.search(kw, lower):
+            return "write"
     return None
 
 def is_url(text):
@@ -419,6 +478,10 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
         )
         return
 
+    # Detect skill intent
+    skill_intent = detect_skill_intent(text)
+    skill_urls = extract_urls(text) if skill_intent in ["extract", "crawl"] else []
+
     lock = _user_locks[user_id]
     async with lock:
         if user_id not in ai_history:
@@ -458,6 +521,8 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
         "search_engine": search_engine,
         "tavily_topic": ai_tavily_topic.get(user_id, "general"),
         "tavily_depth": ai_tavily_depth.get(user_id, "advanced"),
+        "skill": skill_intent or "",
+        "skill_urls": skill_urls,
         "bot_id": "yuki",
     }
     if image_b64:
