@@ -82,6 +82,7 @@ ai_pending_video: dict[int, str] = {}
 _state_timestamps: dict[int, float] = defaultdict(float)
 _rate_limit: dict[int, float] = defaultdict(float)
 _user_locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
+_user_state: dict[int, dict] = defaultdict(dict)  # Level 2: cache profile, memory, compression
 
 # ── Google Sheets (History) ──────────────────────────────────────────
 
@@ -176,6 +177,266 @@ async def save_history_to_sheets(user_id, role, content):
 
 async def clear_history_sheets(user_id, count=0):
     await asyncio.to_thread(_clear_history_sync, user_id, count)
+
+# ── Level 2: User Profile & Memory ─────────────────────────────────
+
+def _get_profile_ws_sync():
+    """Get or auto-create YukiProfile worksheet."""
+    if not SHEET_ID:
+        return None
+    try:
+        gc = get_sheets_client()
+        sh = gc.open_by_key(SHEET_ID)
+        try:
+            return sh.worksheet("YukiProfile")
+        except gspread.exceptions.WorksheetNotFound:
+            ws = sh.add_worksheet("YukiProfile", rows=1000, cols=4)
+            ws.update("A1:D1", [["user_id", "key", "value", "updated_at"]])
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            for k, v in [("nama", "Y71"), ("hobi", "oprek-oprek"), ("minuman_suka", "kopi americano"), ("lokasi", "di hati Yuki"), ("skill", "suka coding meskipun ngga bisa")]:
+                ws.append_row(["8575279550", k, v, now])
+            logger.info("Created YukiProfile worksheet with default Y71 data")
+            return ws
+    except Exception as e:
+        logger.error(f"Profile sheets error: {e}")
+        return None
+
+def _get_memory_ws_sync():
+    """Get or auto-create YukiMemory worksheet."""
+    if not SHEET_ID:
+        return None
+    try:
+        gc = get_sheets_client()
+        sh = gc.open_by_key(SHEET_ID)
+        try:
+            return sh.worksheet("YukiMemory")
+        except gspread.exceptions.WorksheetNotFound:
+            ws = sh.add_worksheet("YukiMemory", rows=1000, cols=7)
+            ws.update("A1:G1", [["id", "user_id", "summary", "topics", "importance", "created_at", "last_recalled"]])
+            logger.info("Created YukiMemory worksheet")
+            return ws
+    except Exception as e:
+        logger.error(f"Memory sheets error: {e}")
+        return None
+
+def _load_profile_sync(user_id):
+    """Load user profile dari Google Sheets."""
+    ws = _get_profile_ws_sync()
+    if not ws:
+        return {}
+    try:
+        records = ws.get_all_records()
+        profile = {}
+        for r in records:
+            if str(r.get("user_id")) == str(user_id):
+                profile[r["key"]] = r["value"]
+        return profile
+    except Exception as e:
+        logger.error(f"Load profile error: {e}")
+        return {}
+
+def _save_profile_sync(user_id, key, value):
+    """Save/update user profile ke Google Sheets."""
+    ws = _get_profile_ws_sync()
+    if not ws:
+        return
+    try:
+        records = ws.get_all_records()
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        for i, r in enumerate(records, start=2):
+            if str(r.get("user_id")) == str(user_id) and r.get("key") == key:
+                ws.update_cell(i, 4, now)
+                ws.update_cell(i, 3, value)
+                return
+        ws.append_row([str(user_id), key, value, now])
+    except Exception as e:
+        logger.error(f"Save profile error: {e}")
+
+def _load_memories_sync(user_id, limit=5):
+    """Load top memories dari Google Sheets."""
+    ws = _get_memory_ws_sync()
+    if not ws:
+        return ""
+    try:
+        records = ws.get_all_records()
+        user_memories = [r for r in records if str(r.get("user_id")) == str(user_id)]
+        user_memories.sort(key=lambda x: int(x.get("importance", 0)), reverse=True)
+        user_memories = user_memories[:limit]
+        if not user_memories:
+            return ""
+        lines = ["MEMORY DENGAN USER:"]
+        for i, mem in enumerate(user_memories, 1):
+            summary = mem.get("summary", "")
+            importance = mem.get("importance", 5)
+            created = mem.get("created_at", "")[:10]
+            lines.append(f"{i}. {summary} ({importance}/10, {created})")
+        return "\n".join(lines)
+    except Exception as e:
+        logger.error(f"Load memories error: {e}")
+        return ""
+
+def _save_memory_sync(user_id, summary, topics, importance):
+    """Save memory ke Google Sheets."""
+    ws = _get_memory_ws_sync()
+    if not ws:
+        return
+    try:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        memory_id = int(datetime.now().timestamp())
+        ws.append_row([str(memory_id), str(user_id), summary, topics, importance, now, now])
+    except Exception as e:
+        logger.error(f"Save memory error: {e}")
+
+# Async wrappers
+async def load_user_profile(user_id):
+    return await asyncio.to_thread(_load_profile_sync, user_id)
+
+async def save_user_profile(user_id, key, value):
+    await asyncio.to_thread(_save_profile_sync, user_id, key, value)
+
+async def load_memories(user_id, limit=5):
+    return await asyncio.to_thread(_load_memories_sync, user_id, limit)
+
+async def save_memory(user_id, summary, topics, importance):
+    await asyncio.to_thread(_save_memory_sync, user_id, summary, topics, importance)
+
+def get_user_profile_text(profile):
+    """Convert profile dict to prompt text."""
+    if not profile:
+        return ""
+    label_map = {
+        "nama": "Nama", "hobi": "Hobi", "minuman_suka": "Minuman favorit",
+        "lokasi": "Lokasi", "skill": "Skill/Kemampuan",
+        "usia": "Usia", "kota": "Kota", "pekerjaan": "Pekerjaan",
+    }
+    lines = ["INFO USER:"]
+    for key, value in profile.items():
+        label = label_map.get(key, key.replace("_", " ").title())
+        lines.append(f"- {label}: {value}")
+    return "\n".join(lines)
+
+# ── Auto-Extract Facts & Memory (every N chats) ──
+
+def _count_user_messages(history):
+    return sum(1 for m in history if m.get("role") == "user")
+
+async def auto_extract_facts(user_id, history):
+    """Extract user facts setiap 10 chat."""
+    count = _count_user_messages(history)
+    if count < 10 or count % 10 != 0:
+        return
+    try:
+        recent = history[-10:]
+        conv_text = "\n".join([f"{'User' if m['role']=='user' else 'Yuki'}: {m['content']}" for m in recent])
+        prompt = (
+            f"[PERCAKAPAN]\n{conv_text}\n\n"
+            "Extract fakta tentang user dari percakapan di atas.\n"
+            "Return JSON: {{ \"key\": \"value\" }}\n"
+            "Hanya extract: nama, hobi, usia, kota, kesukaan, pekerjaan, minuman, makanan.\n"
+            "Kalau tidak ada fakta baru, return: {}"
+        )
+        # Use the server to extract via /ask with special skill
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{AI_SERVER_URL}/ask",
+                json={"question": prompt, "history": [], "model": "gemini", "skill": "extract_facts"},
+                timeout=30,
+            )
+        if resp.status_code == 200:
+            data = resp.json()
+            reply = data.get("reply", "{}").strip()
+            if reply and reply != "{}":
+                try:
+                    facts = json.loads(reply)
+                    for k, v in facts.items():
+                        await save_user_profile(user_id, k, str(v))
+                    logger.info(f"Auto-extracted {len(facts)} facts for user {user_id}")
+                except json.JSONDecodeError:
+                    pass
+    except Exception as e:
+        logger.error(f"Auto-extract facts error: {e}")
+
+async def auto_summarize_memory(user_id, history):
+    """Summarize conversation setiap 20 chat."""
+    count = _count_user_messages(history)
+    if count < 20 or count % 20 != 0:
+        return
+    try:
+        recent = history[-20:]
+        conv_text = "\n".join([f"{'User' if m['role']=='user' else 'Yuki'}: {m['content']}" for m in recent])
+        prompt = (
+            f"[PERCAKAPAN]\n{conv_text}\n\n"
+            "Ringkas percakapan ini dalam 1-2 kalimat.\n"
+            "Return format:\n"
+            "Ringkasan: [summary]\n"
+            "Topik: [topic1,topic2]\n"
+            "Importance: [1-10]"
+        )
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{AI_SERVER_URL}/ask",
+                json={"question": prompt, "history": [], "model": "gemini", "skill": "summarize_memory"},
+                timeout=30,
+            )
+        if resp.status_code == 200:
+            data = resp.json()
+            reply = data.get("reply", "").strip()
+            if reply:
+                summary, topics, importance = "", "", 5
+                for line in reply.split("\n"):
+                    if line.startswith("Ringkasan:"):
+                        summary = line.split(":", 1)[1].strip()
+                    elif line.startswith("Topik:"):
+                        topics = line.split(":", 1)[1].strip()
+                    elif line.startswith("Importance:"):
+                        try:
+                            importance = int(line.split(":", 1)[1].strip())
+                        except ValueError:
+                            pass
+                if summary:
+                    await save_memory(user_id, summary, topics, importance)
+                    logger.info(f"Auto-summarized memory for user {user_id}: {summary[:50]}")
+    except Exception as e:
+        logger.error(f"Auto-summarize memory error: {e}")
+
+async def auto_compress_history(user_id, history):
+    """Compress old messages (>80) into summary."""
+    if len(history) <= 80:
+        return
+    cache_key = f"_compressed_{user_id}"
+    if cache_key in _user_state and _user_state[cache_key].get("count") == len(history):
+        return
+    try:
+        old = history[:60]
+        conv_text = "\n".join([f"{'User' if m['role']=='user' else 'Yuki'}: {m['content']}" for m in old])
+        prompt = (
+            f"[PERCAKAPAN LAMA]\n{conv_text}\n\n"
+            "Ringkas percakapan ini dalam 2-3 kalimat. "
+            "Fokus: topik utama, fakta penting, keputusan. "
+            "Return plain text, Bahasa Indonesia."
+        )
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{AI_SERVER_URL}/ask",
+                json={"question": prompt, "history": [], "model": "gemini"},
+                timeout=30,
+            )
+        if resp.status_code == 200:
+            summary = resp.json().get("reply", "Percakapan sebelumnya tentang berbagai topik.")
+            _user_state[cache_key] = {"summary": summary, "count": len(history)}
+            logger.info(f"Compressed history for user {user_id}: {summary[:50]}")
+    except Exception as e:
+        logger.error(f"Auto-compress history error: {e}")
+
+def get_compressed_history(user_id, history):
+    """Return history dengan compression untuk context > 80 messages."""
+    if len(history) <= 80:
+        return history
+    cache_key = f"_compressed_{user_id}"
+    cached = _user_state.get(cache_key, {})
+    summary = cached.get("summary", "Percakapan sebelumnya tentang berbagai topik.")
+    recent = history[80:]
+    return [{"role": "system", "content": f"[RINGKASAN PERCAKAPAN SEBELUMNYA]\n{summary}"}] + recent
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -509,11 +770,17 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
     if urls and not image_b64 and not video_b64:
         url_content = await fetch_url_content(urls[0])
 
-    history_with_system = ai_history.get(user_id, [])[:-1]
+    # Level 2: Load profile + memory + compress history
+    profile = await load_user_profile(user_id)
+    profile_text = get_user_profile_text(profile)
+    memory_text = await load_memories(user_id)
+    history = get_compressed_history(user_id, ai_history.get(user_id, [])[:-1])
 
     payload = {
         "question": text,
-        "history": history_with_system,
+        "history": history,
+        "profile": profile_text,
+        "memory": memory_text,
         "model": model_pref,
         "web_search": web_search,
         "search_engine": search_engine,
@@ -600,6 +867,14 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
 
         touch_user_state(user_id)
         await send_long_message(chat_id, reply)
+
+        # Level 2: Auto-extract facts + summarize memory (async, non-blocking)
+        try:
+            await auto_extract_facts(user_id, ai_history.get(user_id, []))
+            await auto_summarize_memory(user_id, ai_history.get(user_id, []))
+            await auto_compress_history(user_id, ai_history.get(user_id, []))
+        except Exception as e:
+            logger.error(f"Level 2 auto-tasks error: {e}")
 
     except httpx.TimeoutException:
         async with lock:
