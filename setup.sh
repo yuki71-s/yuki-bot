@@ -119,6 +119,9 @@ fi
 # ── Step 6: Config Nginx ──
 echo -e "${YELLOW}[6/10] Configuring Nginx reverse proxy...${NC}"
 
+# Ensure conf.d directory exists (AaPanel may use different path)
+mkdir -p /etc/nginx/conf.d
+
 # Backup existing config
 if [ -f "/etc/nginx/conf.d/yuki.conf" ]; then
     cp /etc/nginx/conf.d/yuki.conf /etc/nginx/conf.d/yuki.conf.backup
