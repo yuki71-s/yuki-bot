@@ -279,14 +279,6 @@ SEARCH_KEYWORDS = [
     r"\bcari\b", r"\bcarikan\b", r"\bmlink\b", r"\byoutube\b", r"\bvideo\b",
     r"\bwatch\b", r"\blink\b", r"\bsumber\b", r"\breferensi\b",
 ]
-DEEP_SEARCH_KEYWORDS = [
-    r"\bdeep\s*search\b", r"\bcari\s*detail\b", r"\brigkasan\b",
-    r"\bresearch\b", r"\bumentuhkan\s*penjelasan\b", r"\blengkap\b",
-    r"\bdaftar\b", r"\blist\b", r"\bsemua\b", r"\bterbaru\b",
-    r"\bterkini\b", r"\bupdate\b", r"\breal\s*time\b",
-    r"\binstagram\b", r"\btiktok\b", r"\btwitter\b", r"\bx\.com\b",
-    r"\bfacebook\b", r"\blink\s*akun\b", r"\bakun\b",
-]
 SEARCH_END_KEYWORDS = [
     r"\bselesai search\b", r"\budah search\b", r"\bstop search\b",
     r"\bcukup search\b", r"\budah ya\b", r"\bselesai ya\b", r"\budahan\b",
@@ -338,14 +330,6 @@ def detect_search_intent(text):
         if re.search(kw, lower):
             return "on"
     return None
-
-def detect_search_depth(text):
-    """Detect if query needs deep search (Tavily) vs quick search (TinyFish)."""
-    lower = text.lower()
-    for kw in DEEP_SEARCH_KEYWORDS:
-        if re.search(kw, lower):
-            return "deep"
-    return "quick"
 
 def is_url(text):
     url_pattern = re.compile(
