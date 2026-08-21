@@ -525,10 +525,10 @@ async def send_long_message(chat_id, text):
 
 # ── AI Chat ──────────────────────────────────────────────────────────
 
-SEARCH_ON_MSG = "oke sayang, aku ganti ke model yang bisa search ya~ 🔍 Coba tanya apa aja!"
-SEARCH_OFF_MSG = "oke sayang, search udahan ya~ Kembali normal~ ✨"
-TAVILY_ON_MSG = "🔍 Tavily Search ON! Pilih setting dulu ya sayang~"
-TINY_ON_MSG = "🔍 TinyFish Search ON! (gratis, quick search) ✅"
+SEARCH_ON_MSG = "Search mode ON! Aku cariin ya sayang~ 🔍 Tanya apa aja!"
+SEARCH_OFF_MSG = "Oke search udahan ya~ Kembali normal~ ✨"
+TAVILY_ON_MSG = "Tavily ON ya sayang~ 🌐 Aku pakai News + Advanced ya. Tunggu sebentar~"
+TINY_ON_MSG = "TinyFish ON! Gratis, quick search~ 🔍 Tanya apa aja sayang~"
 
 def get_thinking_msg(context="normal"):
     """Return dynamic thinking message based on context."""
@@ -1370,7 +1370,6 @@ async def handle_callback(callback_query):
         topic = data.replace("tavily_topic_", "")
         ai_tavily_topic[user_id] = topic
         touch_user_state(user_id)
-        # Update pesan dengan setting terbaru
         topic_label = "News 📰" if topic == "news" else "General 🌐"
         depth = ai_tavily_depth.get(user_id, "advanced")
         depth_label = {"advanced": "Advanced (2cr)", "basic": "Basic (1cr)", "fast": "Fast (1cr)", "ultra-fast": "Ultra-fast (1cr)"}.get(depth, depth)
@@ -1378,7 +1377,7 @@ async def handle_callback(callback_query):
             await bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=callback_query.message.message_id,
-                text=f"🔍 Tavily Settings:\n• Topic: {topic_label}\n• Depth: {depth_label}\n\nKetik pesan untuk mulai search!",
+                text=f"Oke, aku ganti ke {topic_label} ya sayang~ 🌐\nDepth: {depth_label}\n\nKetik pesan untuk mulai search!",
             )
         except TelegramError:
             pass
@@ -1390,7 +1389,6 @@ async def handle_callback(callback_query):
         depth = data.replace("tavily_depth_", "")
         ai_tavily_depth[user_id] = depth
         touch_user_state(user_id)
-        # Update pesan dengan setting terbaru
         topic = ai_tavily_topic.get(user_id, "general")
         topic_label = "News 📰" if topic == "news" else "General 🌐"
         depth_label = {"advanced": "Advanced (2cr)", "basic": "Basic (1cr)", "fast": "Fast (1cr)", "ultra-fast": "Ultra-fast (1cr)"}.get(depth, depth)
@@ -1398,7 +1396,7 @@ async def handle_callback(callback_query):
             await bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=callback_query.message.message_id,
-                text=f"🔍 Tavily Settings:\n• Topic: {topic_label}\n• Depth: {depth_label}\n\nKetik pesan untuk mulai search!",
+                text=f"Oke, aku pakai {depth_label} ya sayang~ ⚡\nTopic: {topic_label}\n\nKetik pesan untuk mulai search!",
             )
         except TelegramError:
             pass
