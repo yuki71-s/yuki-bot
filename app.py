@@ -528,7 +528,7 @@ async def send_long_message(chat_id, text):
 SEARCH_ON_MSG = "Search mode ON! Aku cariin ya sayang~ 🔍 Tanya apa aja!"
 SEARCH_OFF_MSG = "Oke search udahan ya~ Kembali normal~ ✨"
 TAVILY_ON_MSG = "Tavily ON ya sayang~ 🌐 Aku pakai News + Advanced ya. Tunggu sebentar~"
-TINY_ON_MSG = "TinyFish ON! Gratis, quick search~ 🔍 Tanya apa aja sayang~"
+TINY_ON_MSG = "Aku cariin ya sayang~ 🔍 Tanya apa aja~"
 
 def get_thinking_msg(context="normal"):
     """Return dynamic thinking message based on context."""
