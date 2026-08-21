@@ -271,7 +271,13 @@ async def send_long_message(chat_id, text):
 
 SEARCH_ON_MSG = "oke sayang, aku ganti ke model yang bisa search ya~ 🔍 Coba tanya apa aja!"
 SEARCH_OFF_MSG = "oke sayang, search udahan ya~ Kembali normal~ ✨"
+TAVILY_ON_MSG = "🔍 Tavily Search ON! Pilih setting dulu ya sayang~"
+TINY_ON_MSG = "🔍 TinyFish Search ON! (gratis, quick search) ✅"
 THINKING_MSG = "🤖 Yuki sedang berpikir..."
+
+# Per-user Tavily settings: topic + depth
+ai_tavily_topic: dict[int, str] = {}   # "news" atau "general"
+ai_tavily_depth: dict[int, str] = {}   # "advanced", "basic", "fast", "ultra-fast"
 
 SEARCH_KEYWORDS = [
     r"\bcari di google\b", r"\bsearch\b", r"\bberita\b", r"\bgoggle\b",
@@ -283,44 +289,40 @@ SEARCH_END_KEYWORDS = [
     r"\bselesai search\b", r"\budah search\b", r"\bstop search\b",
     r"\bcukup search\b", r"\budah ya\b", r"\bselesai ya\b", r"\budahan\b",
 ]
-SEARCH_ENGINE_ON_KEYWORDS = [
-    r"\byuki,?\s*search\s*engine\s*on\b",
-    r"\byuki,?\s*nyalain?\s*search\b",
-    r"\byuki,?\s*aktifin?\s*search\b",
-    r"\byuki,?\s*search\s*on\b",
+TINY_ON_KEYWORDS = [  # TinyFish (quick, gratis)
+    r"\byuki,?\s*tiny\s*on\b",
+    r"\byuki,?\s*tinyfish\s*on\b",
+    r"\byuki,?\s*search\s*engine\s*1\b",
+]
+TAVILY_ON_KEYWORDS = [  # Tavily (realtime, 1-2 credits)
+    r"\byuki,?\s*tavily\s*on\b",
+    r"\byuki,?\s*search\s*engine\s*2\b",
+    r"\byuki,?\s*search\s*deep\b",
 ]
 SEARCH_ENGINE_OFF_KEYWORDS = [
+    r"\byuki,?\s*tiny\s*off\b",
+    r"\byuki,?\s*tavily\s*off\b",
     r"\byuki,?\s*search\s*engine\s*off\b",
     r"\byuki,?\s*matiin?\s*search\b",
     r"\byuki,?\s*nonaktifin?\s*search\b",
     r"\byuki,?\s*search\s*off\b",
-]
-SEARCH_ENGINE_1_KEYWORDS = [  # TinyFish (quick, gratis)
-    r"\byuki,?\s*search\s*engine\s*1\b",
-    r"\byuki,?\s*search\s*engine\s*tinyfish\b",
-    r"\byuki,?\s*search\s*quick\b",
-]
-SEARCH_ENGINE_2_KEYWORDS = [  # Tavily (deep, 1-2 credits)
-    r"\byuki,?\s*search\s*engine\s*2\b",
-    r"\byuki,?\s*search\s*engine\s*tavily\b",
-    r"\byuki,?\s*search\s*deep\b",
+    r"\byuki,?\s*search\s*off\b",
 ]
 
 def detect_search_intent(text):
     lower = text.lower()
-    # Cek command khusus On/Off/Engine dulu
+    # Cek command khusus Off dulu
     for kw in SEARCH_ENGINE_OFF_KEYWORDS:
         if re.search(kw, lower):
             return "off"
-    for kw in SEARCH_ENGINE_1_KEYWORDS:
+    # Cek Tiny On
+    for kw in TINY_ON_KEYWORDS:
         if re.search(kw, lower):
-            return "engine1"
-    for kw in SEARCH_ENGINE_2_KEYWORDS:
+            return "tiny_on"
+    # Cek Tavily On
+    for kw in TAVILY_ON_KEYWORDS:
         if re.search(kw, lower):
-            return "engine2"
-    for kw in SEARCH_ENGINE_ON_KEYWORDS:
-        if re.search(kw, lower):
-            return "on"
+            return "tavily_on"
     # Cek end keywords
     for kw in SEARCH_END_KEYWORDS:
         if re.search(kw, lower):
@@ -376,33 +378,45 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
     if search_intent == "on":
         ai_search[user_id] = True
         touch_user_state(user_id)
-        # Cek apakah ini command khusus "Yuki, search Engine On" (tanpa query)
+        # Cek apakah ini command khusus (tanpa query)
         is_engine_command = bool(re.search(
             r"yuki,?\s*search\s*engine\s*on|yuki,?\s*nyalain?\s*search|yuki,?\s*aktifin?\s*search|yuki,?\s*search\s*on",
             text.lower()
         ))
         if is_engine_command:
-            # Cuma command toggle, kirim pesan ON
             await bot.send_message(chat_id=chat_id, text=SEARCH_ON_MSG)
             return
-        # Query lain (carikan, berita, youtube, dll) → langsung search
         logger.info(f"Search mode ON + search: '{text}'")
     elif search_intent == "off":
         ai_search[user_id] = False
         touch_user_state(user_id)
         await bot.send_message(chat_id=chat_id, text=SEARCH_OFF_MSG)
         return
-    elif search_intent == "engine1":
+    elif search_intent == "tiny_on":
         ai_search[user_id] = True
         ai_search_engine[user_id] = "tinyfish"
         touch_user_state(user_id)
-        await bot.send_message(chat_id=chat_id, text="🔍 Search engine: TinyFish (quick, gratis) ✅")
+        await bot.send_message(chat_id=chat_id, text=TINY_ON_MSG)
         return
-    elif search_intent == "engine2":
+    elif search_intent == "tavily_on":
         ai_search[user_id] = True
         ai_search_engine[user_id] = "tavily"
         touch_user_state(user_id)
-        await bot.send_message(chat_id=chat_id, text="🔍 Search engine: Tavily (deep, hasil lebih bagus) ✅")
+        # Tampilkan inline keyboard untuk Tavily settings
+        keyboard = [
+            [InlineKeyboardButton("📰 News", callback_data="tavily_topic_news"),
+             InlineKeyboardButton("🌐 General", callback_data="tavily_topic_general")],
+            [InlineKeyboardButton("⚡ Fast", callback_data="tavily_depth_fast"),
+             InlineKeyboardButton("🚀 Ultra-fast", callback_data="tavily_depth_ultra-fast")],
+            [InlineKeyboardButton("📋 Basic (1 cr)", callback_data="tavily_depth_basic"),
+             InlineKeyboardButton("🔬 Advanced (2 cr)", callback_data="tavily_depth_advanced")],
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await bot.send_message(
+            chat_id=chat_id,
+            text=TAVILY_ON_MSG,
+            reply_markup=reply_markup,
+        )
         return
 
     lock = _user_locks[user_id]
@@ -442,6 +456,8 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
         "model": model_pref,
         "web_search": web_search,
         "search_engine": search_engine,
+        "tavily_topic": ai_tavily_topic.get(user_id, "general"),
+        "tavily_depth": ai_tavily_depth.get(user_id, "advanced"),
         "bot_id": "yuki",
     }
     if image_b64:
@@ -915,7 +931,7 @@ async def handle_callback(callback_query):
         ai_search[user_id] = not ai_search.get(user_id, False)
         if ai_search[user_id]:
             engine = ai_search_engine.get(user_id, "tinyfish")
-            engine_name = "Tavily (deep)" if engine == "tavily" else "TinyFish (quick)"
+            engine_name = "Tavily" if engine == "tavily" else "TinyFish"
             status = f"ON 🟢 [{engine_name}]"
         else:
             status = "OFF ⚪"
@@ -928,6 +944,47 @@ async def handle_callback(callback_query):
         except TelegramError:
             pass
         touch_user_state(user_id)
+        return
+
+    # ── Tavily Settings Callbacks ──
+    if data.startswith("tavily_topic_"):
+        await bot.answer_callback_query(callback_query.id)
+        user_id = callback_query.from_user.id
+        topic = data.replace("tavily_topic_", "")
+        ai_tavily_topic[user_id] = topic
+        touch_user_state(user_id)
+        # Update pesan dengan setting terbaru
+        topic_label = "News 📰" if topic == "news" else "General 🌐"
+        depth = ai_tavily_depth.get(user_id, "advanced")
+        depth_label = {"advanced": "Advanced (2cr)", "basic": "Basic (1cr)", "fast": "Fast (1cr)", "ultra-fast": "Ultra-fast (1cr)"}.get(depth, depth)
+        try:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=callback_query.message.message_id,
+                text=f"🔍 Tavily Settings:\n• Topic: {topic_label}\n• Depth: {depth_label}\n\nKetik pesan untuk mulai search!",
+            )
+        except TelegramError:
+            pass
+        return
+
+    if data.startswith("tavily_depth_"):
+        await bot.answer_callback_query(callback_query.id)
+        user_id = callback_query.from_user.id
+        depth = data.replace("tavily_depth_", "")
+        ai_tavily_depth[user_id] = depth
+        touch_user_state(user_id)
+        # Update pesan dengan setting terbaru
+        topic = ai_tavily_topic.get(user_id, "general")
+        topic_label = "News 📰" if topic == "news" else "General 🌐"
+        depth_label = {"advanced": "Advanced (2cr)", "basic": "Basic (1cr)", "fast": "Fast (1cr)", "ultra-fast": "Ultra-fast (1cr)"}.get(depth, depth)
+        try:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=callback_query.message.message_id,
+                text=f"🔍 Tavily Settings:\n• Topic: {topic_label}\n• Depth: {depth_label}\n\nKetik pesan untuk mulai search!",
+            )
+        except TelegramError:
+            pass
         return
 
 
