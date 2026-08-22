@@ -1099,8 +1099,11 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
         )
         return
 
-    # Detect skill intent
-    skill_intent = detect_skill_intent(text)
+    # Detect complex/logic questions FIRST - overrides skill detection
+    is_complex = detect_complex_question(text)
+
+    # Detect skill intent (skip if complex question detected)
+    skill_intent = None if is_complex else detect_skill_intent(text)
     skill_urls = extract_urls(text) if skill_intent in ["extract", "crawl"] else []
 
     lock = _user_locks[user_id]
@@ -1119,10 +1122,9 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
     search_engine = ai_search_engine.get(user_id, "tinyfish") if web_search else "tinyfish"
 
     # Auto-route complex/logic questions to DeepSeek V4 Flash Free
-    if not model_pref and not web_search and not skill_intent and not image_b64 and not video_b64:
-        if detect_complex_question(text):
-            model_pref = REASONING_MODEL
-            logger.info(f"Complex question detected, routing to DeepSeek V4 Flash Free")
+    if is_complex and not model_pref and not web_search and not image_b64 and not video_b64:
+        model_pref = REASONING_MODEL
+        logger.info("Complex question detected, routing to DeepSeek V4 Flash Free")
 
     # Determine thinking context
     if skill_intent in ["extract", "crawl"]:
