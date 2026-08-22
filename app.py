@@ -650,16 +650,45 @@ def extract_youtube_video_id(url):
     return None
 
 async def extract_youtube_transcript(video_id):
-    """Fetch YouTube transcript via youtube-transcript-api."""
+    """Fetch YouTube transcript via Inner Tube page scraping (bypasses cloud IP block)."""
     try:
         def _fetch():
-            from youtube_transcript_api import YouTubeTranscriptApi
-            ytt_api = YouTubeTranscriptApi()
-            try:
-                transcript = ytt_api.fetch(video_id, languages=["id", "en"])
-            except Exception:
-                transcript = ytt_api.fetch(video_id)
-            return " ".join([entry.text for entry in transcript.snippets])
+            import re as _re
+            import json as _json
+            url = f"https://www.youtube.com/watch?v={video_id}"
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", "Accept-Language": "id-ID,id;q=0.9,en;q=0.8"}
+            resp = httpx.get(url, headers=headers, follow_redirects=True, timeout=15)
+            html = resp.text
+            # Extract caption tracks from embedded JSON
+            match = _re.search(r'"captionTracks":\s*(\[.*?\])', html)
+            if not match:
+                # Try alternate pattern
+                match = _re.search(r'"playerCaptionsTracklistRenderer".*?"captionTracks":\s*(\[.*?\])', html)
+            if not match:
+                return None
+            tracks = _json.loads(match.group(1))
+            # Prefer Indonesian, fallback to English
+            selected = None
+            for lang in ["id", "en"]:
+                for t in tracks:
+                    if t.get("languageCode") == lang:
+                        selected = t
+                        break
+                if selected:
+                    break
+            if not selected and tracks:
+                selected = tracks[0]
+            if not selected:
+                return None
+            caption_url = selected.get("baseUrl")
+            if not caption_url:
+                return None
+            # Fetch actual captions XML
+            cap_resp = httpx.get(caption_url, headers=headers, timeout=15)
+            texts = _re.findall(r'<text[^>]*>(.*?)</text>', cap_resp.text)
+            # Decode HTML entities
+            import html as _html
+            return " ".join([_html.unescape(t) for t in texts])
         return await asyncio.to_thread(_fetch)
     except Exception as e:
         logger.error(f"YouTube transcript error: {e}")
