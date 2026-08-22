@@ -616,7 +616,7 @@ TRANSLATE_KEYWORDS = [
     r"\bbahasa\s*(?:inggris|jepang|korea|arab|jawa|sunda|mandarin)\b",
 ]
 SUMMARIZE_KEYWORDS = [
-    r"\bsummarize\b", r"\bringkas\b", r"\bringkasin\b", r"\bringkas\s*ini\b",
+    r"\bsummarize\b", r"\bringkas\b", r"\bringkum\b", r"\bringkasin\b", r"\bringkas\s*ini\b",
     r"\bsummary\b", r"\btldr\b", r"\binti\s*nya\b",
 ]
 WRITE_KEYWORDS = [
@@ -674,18 +674,18 @@ def detect_skill_intent(text):
     for kw in CRAWL_KEYWORDS:
         if re.search(kw, lower):
             return "crawl"
-    # Cek research
-    for kw in RESEARCH_KEYWORDS:
+    # Cek summarize (SEBELUM research)
+    for kw in SUMMARIZE_KEYWORDS:
         if re.search(kw, lower):
-            return "research"
+            return "summarize"
     # Cek translate
     for kw in TRANSLATE_KEYWORDS:
         if re.search(kw, lower):
             return "translate"
-    # Cek summarize
-    for kw in SUMMARIZE_KEYWORDS:
+    # Cek research
+    for kw in RESEARCH_KEYWORDS:
         if re.search(kw, lower):
-            return "summarize"
+            return "research"
     # Cek write
     for kw in WRITE_KEYWORDS:
         if re.search(kw, lower):
