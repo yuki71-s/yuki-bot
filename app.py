@@ -615,22 +615,90 @@ def is_safe_url(url):
     except Exception:
         return False
 
+async def transcribe_voice(audio_bytes, mime_type="audio/ogg"):
+    """Transcribe voice note via AI server /transcribe endpoint."""
+    import base64
+    audio_b64 = base64.b64encode(audio_bytes).decode()
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{AI_SERVER_URL}/transcribe",
+                json={"audio": audio_b64, "mime_type": mime_type},
+                timeout=30,
+            )
+        if resp.status_code == 200:
+            text = resp.json().get("text", "")
+            if text:
+                logger.info(f"Voice transcribed: {text[:80]}")
+                return text
+        logger.error(f"Transcribe failed: {resp.status_code} {resp.text[:200]}")
+    except Exception as e:
+        logger.error(f"Transcribe error: {e}")
+    return None
+
+async def typing_loop(chat_id, stop_event):
+    """Send typing action every 3 seconds until stop_event is set."""
+    while not stop_event.is_set():
+        try:
+            await bot.send_chat_action(chat_id=chat_id, action="typing")
+        except TelegramError:
+            pass
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=3.0)
+        except asyncio.TimeoutError:
+            pass
+
+def markdown_to_html(text):
+    """Convert simple markdown to HTML for Telegram."""
+    import re as _re
+    text = _re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
+    text = _re.sub(r'\*(.+?)\*', r'<i>\1</i>', text)
+    text = _re.sub(r'`(.+?)`', r'<code>\1</code>', text)
+    text = _re.sub(r'```(.+?)```', r'<pre>\1</pre>', text, flags=_re.DOTALL)
+    text = _re.sub(r'__(.+?)__', r'<u>\1</u>', text)
+    text = _re.sub(r'~~(.+?)~~', r'<s>\1</s>', text)
+    text = _re.sub(r'(?<!["\w])(https?://[^\s<>]+)', r'<a href="\1">\1</a>', text)
+    return text
+
+def escape_html(text):
+    """Escape HTML special characters for Telegram (but preserve markdown chars)."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+def markdown_to_html(text):
+    """Convert simple markdown to HTML for Telegram. Run AFTER escape_html."""
+    import re as _re
+    text = _re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
+    text = _re.sub(r'(?<!\*)\*([^*]+)\*(?!\*)', r'<i>\1</i>', text)
+    text = _re.sub(r'`(.+?)`', r'<code>\1</code>', text)
+    text = _re.sub(r'```(.+?)```', r'<pre>\1</pre>', text, flags=_re.DOTALL)
+    text = _re.sub(r'__(.+?)__', r'<u>\1</u>', text)
+    text = _re.sub(r'~~(.+?)~~', r'<s>\1</s>', text)
+    text = _re.sub(r'(?<!["\w])(https?://[^\s<>]+)', r'<a href="\1">\1</a>', text)
+    return text
+
 async def send_long_message(chat_id, text):
-    if len(text) <= MAX_MSG_LEN:
-        await bot.send_message(chat_id=chat_id, text=text)
+    html_text = markdown_to_html(escape_html(text))
+    if len(html_text) <= MAX_MSG_LEN:
+        try:
+            await bot.send_message(chat_id=chat_id, text=html_text, parse_mode="HTML")
+        except TelegramError:
+            await bot.send_message(chat_id=chat_id, text=text)
         return
     parts = []
-    while text:
-        if len(text) <= MAX_MSG_LEN:
-            parts.append(text)
+    while html_text:
+        if len(html_text) <= MAX_MSG_LEN:
+            parts.append(html_text)
             break
-        idx = text.rfind("\n", 0, MAX_MSG_LEN)
+        idx = html_text.rfind("\n", 0, MAX_MSG_LEN)
         if idx == -1:
             idx = MAX_MSG_LEN
-        parts.append(text[:idx])
-        text = text[idx:].lstrip("\n")
+        parts.append(html_text[:idx])
+        html_text = html_text[idx:].lstrip("\n")
     for part in parts:
-        await bot.send_message(chat_id=chat_id, text=part)
+        try:
+            await bot.send_message(chat_id=chat_id, text=part, parse_mode="HTML")
+        except TelegramError:
+            await bot.send_message(chat_id=chat_id, text=part)
 
 # ── AI Chat ──────────────────────────────────────────────────────────
 
@@ -968,6 +1036,11 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
         elif url_content["type"] == "text":
             payload["question"] = f"[KONTEN DARI URL]\n{url_content['content']}\n\n[PERTANYAAN USER]\n{text}"
 
+    # Start typing action loop
+    typing_stop = asyncio.Event()
+    typing_task = asyncio.create_task(typing_loop(chat_id, typing_stop))
+
+    response = None
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -975,76 +1048,13 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
                 json=payload,
                 timeout=60,
             )
-
-        if response.status_code != 200:
-            logger.error(f"AI server error: {response.status_code} {response.text}")
-            async with lock:
-                if ai_history.get(user_id) and ai_history[user_id][-1]["role"] == "user":
-                    ai_history[user_id].pop()
-            if thinking_msg:
-                try:
-                    await bot.delete_message(chat_id=chat_id, message_id=thinking_msg.message_id)
-                except TelegramError:
-                    pass
-            await bot.send_message(chat_id=chat_id, text="⚠️ AI sedang sibuk. Coba lagi sebentar ya sayang~")
-            return
-
-        try:
-            data = response.json()
-        except Exception:
-            logger.error("AI server returned non-JSON response")
-            async with lock:
-                if ai_history.get(user_id) and ai_history[user_id][-1]["role"] == "user":
-                    ai_history[user_id].pop()
-            if thinking_msg:
-                try:
-                    await bot.delete_message(chat_id=chat_id, message_id=thinking_msg.message_id)
-                except TelegramError:
-                    pass
-            await bot.send_message(chat_id=chat_id, text="⚠️ AI memberikan respons tidak valid.")
-            return
-
-        reply = data.get("reply", "")
-
-        if not reply:
-            async with lock:
-                if ai_history.get(user_id) and ai_history[user_id][-1]["role"] == "user":
-                    ai_history[user_id].pop()
-            if thinking_msg:
-                try:
-                    await bot.delete_message(chat_id=chat_id, message_id=thinking_msg.message_id)
-                except TelegramError:
-                    pass
-            await bot.send_message(chat_id=chat_id, text="⚠️ AI memberikan balasan kosong.")
-            return
-
-        if thinking_msg:
-            try:
-                await bot.delete_message(chat_id=chat_id, message_id=thinking_msg.message_id)
-            except TelegramError:
-                pass
-
-        async with lock:
-            ai_history[user_id].append({"role": "model", "content": reply})
-            await save_history_to_sheets(user_id, "model", reply)
-
-            if len(ai_history[user_id]) > AI_MAX_HISTORY:
-                ai_history[user_id] = ai_history[user_id][-AI_MAX_HISTORY:]
-
-        touch_user_state(user_id)
-        await send_long_message(chat_id, reply)
-
-        # Level 2: Auto-extract facts + summarize memory (async, non-blocking)
-        try:
-            await auto_extract_facts(user_id, ai_history.get(user_id, []))
-            await auto_summarize_memory(user_id, ai_history.get(user_id, []))
-            await auto_compress_history(user_id, ai_history.get(user_id, []))
-            # Tier 1 Adaptasi: mood, topics, tone
-            await auto_adapt(user_id, text, ai_history.get(user_id, []))
-        except Exception as e:
-            logger.error(f"Level 2 auto-tasks error: {e}")
-
     except httpx.TimeoutException:
+        typing_stop.set()
+        typing_task.cancel()
+        try:
+            await typing_task
+        except asyncio.CancelledError:
+            pass
         async with lock:
             if ai_history.get(user_id) and ai_history[user_id][-1]["role"] == "user":
                 ai_history[user_id].pop()
@@ -1053,7 +1063,83 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
                 await bot.delete_message(chat_id=chat_id, message_id=thinking_msg.message_id)
             except TelegramError:
                 pass
-        await bot.send_message(chat_id=chat_id, text="⚠️ Timeout. AI lambat banget sayang, coba lagi ya~ 😤")
+        await bot.send_message(chat_id=chat_id, text="⚠️ AI timeout. Coba lagi sebentar ya sayang~")
+        return
+
+    typing_stop.set()
+    typing_task.cancel()
+    try:
+        await typing_task
+    except asyncio.CancelledError:
+        pass
+
+    if response.status_code != 200:
+        logger.error(f"AI server error: {response.status_code} {response.text}")
+        async with lock:
+            if ai_history.get(user_id) and ai_history[user_id][-1]["role"] == "user":
+                ai_history[user_id].pop()
+        if thinking_msg:
+            try:
+                await bot.delete_message(chat_id=chat_id, message_id=thinking_msg.message_id)
+            except TelegramError:
+                pass
+        await bot.send_message(chat_id=chat_id, text="⚠️ AI sedang sibuk. Coba lagi sebentar ya sayang~")
+        return
+
+    try:
+        data = response.json()
+    except Exception:
+        logger.error("AI server returned non-JSON response")
+        async with lock:
+            if ai_history.get(user_id) and ai_history[user_id][-1]["role"] == "user":
+                ai_history[user_id].pop()
+        if thinking_msg:
+            try:
+                await bot.delete_message(chat_id=chat_id, message_id=thinking_msg.message_id)
+            except TelegramError:
+                pass
+        await bot.send_message(chat_id=chat_id, text="⚠️ AI memberikan respons tidak valid.")
+        return
+
+    reply = data.get("reply", "")
+
+    if not reply:
+        async with lock:
+            if ai_history.get(user_id) and ai_history[user_id][-1]["role"] == "user":
+                ai_history[user_id].pop()
+        if thinking_msg:
+            try:
+                await bot.delete_message(chat_id=chat_id, message_id=thinking_msg.message_id)
+            except TelegramError:
+                pass
+        await bot.send_message(chat_id=chat_id, text="⚠️ AI memberikan balasan kosong.")
+        return
+
+    if thinking_msg:
+        try:
+            await bot.delete_message(chat_id=chat_id, message_id=thinking_msg.message_id)
+        except TelegramError:
+            pass
+
+    async with lock:
+        ai_history[user_id].append({"role": "model", "content": reply})
+        await save_history_to_sheets(user_id, "model", reply)
+
+        if len(ai_history[user_id]) > AI_MAX_HISTORY:
+            ai_history[user_id] = ai_history[user_id][-AI_MAX_HISTORY:]
+
+    touch_user_state(user_id)
+    await send_long_message(chat_id, reply)
+
+    # Level 2: Auto-extract facts + summarize memory (async, non-blocking)
+    try:
+        await auto_extract_facts(user_id, ai_history.get(user_id, []))
+        await auto_summarize_memory(user_id, ai_history.get(user_id, []))
+        await auto_compress_history(user_id, ai_history.get(user_id, []))
+        # Tier 1 Adaptasi: mood, topics, tone
+        await auto_adapt(user_id, text, ai_history.get(user_id, []))
+    except Exception as e:
+        logger.error(f"Level 2 auto-tasks error: {e}")
     except Exception as e:
         logger.error(f"AI error: {type(e).__name__}: {e}")
         async with lock:
@@ -1301,6 +1387,52 @@ async def route_update(update: Update):
                 chat_id=chat_id,
                 text="📝 Mau diapakan video ini sayang? Ketik pesan di bawah video ya~ ❤️",
             )
+        return
+
+    if update.message.voice:
+        if not is_authorized(user_id):
+            await bot.send_message(chat_id=chat_id, text="Kamu tidak punya akses ya sayang~ 😤")
+            return
+        if not check_rate_limit(user_id):
+            await bot.send_message(chat_id=chat_id, text="Dikit-dikit sayang, jangan buru-buru ya~ ⏳")
+            return
+
+        voice = update.message.voice
+        if voice.file_size and voice.file_size > 10 * 1024 * 1024:
+            await bot.send_message(chat_id=chat_id, text="⚠️ Voice note terlalu besar (maks 10MB) sayang~")
+            return
+
+        thinking_msg = await bot.send_message(chat_id=chat_id, text="🎙️ Aku dulu ya sayang~")
+
+        try:
+            file = await bot.get_file(voice.file_id)
+            voice_bytes = await file.download_as_bytearray()
+            transcribed = await transcribe_voice(bytes(voice_bytes), mime_type="audio/ogg")
+            if transcribed:
+                try:
+                    await bot.delete_message(chat_id=chat_id, message_id=thinking_msg.message_id)
+                except TelegramError:
+                    pass
+                await handle_ai(chat_id, user_id, transcribed)
+            else:
+                try:
+                    await bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=thinking_msg.message_id,
+                        text="Hmm, aku ga bisa denger voice note-nya sayang~ Coba ketik aja ya ❤️",
+                    )
+                except TelegramError:
+                    pass
+        except Exception as e:
+            logger.error(f"Voice processing error: {e}")
+            try:
+                await bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=thinking_msg.message_id,
+                    text="⚠️ Gagal proses voice note sayang~ Coba ketik aja ya ❤️",
+                )
+            except TelegramError:
+                pass
         return
 
     if user_id in ai_pending_photo:
