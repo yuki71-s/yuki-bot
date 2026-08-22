@@ -62,6 +62,56 @@ MODELS = {
 
 VISION_MODELS = {k for k, v in MODELS.items() if "vision" in v["desc"].lower() or "video" in v["desc"].lower()}
 DEFAULT_VISION_MODEL = "openrouter/google/gemini-2.5-flash"
+REASONING_MODEL = "openrouter/deepseek/deepseek-v4-flash:free"
+
+def detect_complex_question(text):
+    """Detect if a question needs deep reasoning (logic, math, puzzles, proofs)."""
+    t = text.lower().strip()
+    if len(t) < 10:
+        return False
+    patterns = [
+        r"\bapa\s+jawaban",
+        r"\bbuktikan",
+        r"\bjika\s+.+\s+maka",
+        r"\bhitung",
+        r"\bseberapa\s+banyak",
+        r"\brumus",
+        r"\bpersamaan",
+        r"\bePersamaan",
+        r"\bkemungkinan",
+        r"\bskenario",
+        r"\banalisis",
+        r"\bpenyelesaian",
+        r"\brasio",
+        r"\bproporsi",
+        r"\btebakan\s+teka[\s-]?teki",
+        r"\bsoal\s+uji",
+        r"\btry\s+to\s+solve",
+        r"\bsolve",
+        r"\bproblem",
+        r"\bknapsack",
+        r"\bpermutasi",
+        r"\bkombinasi",
+        r"\bprobabilitas",
+        r"\bhipotesis",
+        r"\bkontradiksi",
+        r"\bparadoks",
+        r"\blogika",
+        r"\bmatriks",
+        r"\bvektor",
+        r"\bintegral",
+        r"\bdifferensial",
+        r"\btransformasi",
+        r"\bkalkulus",
+        r"\baljabar",
+        r"\bgeometri",
+    ]
+    for p in patterns:
+        if re.search(p, t):
+            return True
+    if re.search(r"\d+\s*[+\-*/^]\s*\d+", t):
+        return True
+    return False
 
 # ── State ────────────────────────────────────────────────────────────
 
@@ -1067,6 +1117,12 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
     model_pref = ai_user_model.get(user_id, "")
     web_search = ai_search.get(user_id, False)
     search_engine = ai_search_engine.get(user_id, "tinyfish") if web_search else "tinyfish"
+
+    # Auto-route complex/logic questions to DeepSeek V4 Flash Free
+    if not model_pref and not web_search and not skill_intent and not image_b64 and not video_b64:
+        if detect_complex_question(text):
+            model_pref = REASONING_MODEL
+            logger.info(f"Complex question detected, routing to DeepSeek V4 Flash Free")
 
     # Determine thinking context
     if skill_intent in ["extract", "crawl"]:
