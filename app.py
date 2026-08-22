@@ -14,7 +14,6 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 
 import httpx
-import edge_tts
 from dotenv import load_dotenv
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import TelegramError
@@ -33,7 +32,6 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 AI_SERVER_URL = os.getenv("AI_SERVER_URL", "")
 SHEET_ID = os.getenv("SHEET_ID", "")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
-ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "")
 
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN harus diisi.")
@@ -82,7 +80,6 @@ ai_search_engine: dict[int, str] = {}  # "tinyfish" atau "tavily"
 ai_pending_photo: dict[int, str] = {}
 ai_pending_video: dict[int, str] = {}
 ai_react: dict[int, bool] = {}  # Auto-react emoji toggle
-ai_voice: dict[int, str] = {}   # Voice reply mode: "off", "normal", "anime"
 
 _state_timestamps: dict[int, float] = defaultdict(float)
 _rate_limit: dict[int, float] = defaultdict(float)
@@ -714,107 +711,6 @@ def markdown_to_html(text):
     text = _re.sub(r'(?<!["\w])(https?://[^\s<>]+)', r'<a href="\1">\1</a>', text)
     return text
 
-# ── Voice Reply ─────────────────────────────────────────────────────
-
-EDGE_TTS_VOICE = "id-ID-GadisNeural"
-EDGE_TTS_RATE = "+0%"
-ELEVENLABS_VOICE = "n7534fCgBXcPEM82JQYu"  # Pipi - Cute & Anime
-ELEVENLABS_MODEL = "eleven_multilingual_v2"
-
-def clean_text_for_tts(text):
-    """Clean text: remove markdown, emoji, and special chars for natural TTS."""
-    t = text
-    t = re.sub(r'\*\*(.+?)\*\*', r'\1', t)
-    t = re.sub(r'\*(.+?)\*', r'\1', t)
-    t = re.sub(r'`(.+?)`', r'\1', t)
-    t = re.sub(r'```.*?```', '', t, flags=re.DOTALL)
-    t = re.sub(r'__(.+?)__', r'\1', t)
-    t = re.sub(r'~~(.+?)~~', r'\1', t)
-    t = re.sub(r'#{1,6}\s*', '', t)
-    t = re.sub(r'[-*+]\s+', '', t)
-    t = re.sub(r'\d+\.\s+', '', t)
-    t = re.sub(r'[>|\[\]()]', '', t)
-    t = re.sub(r'https?://\S+', '', t)
-    t = re.sub(r'[\U00010000-\U0010ffff]', '', t)
-    t = re.sub(r'[🎵📖🎧📋📝✅❌⚡💡🙌✨🎉💕😊🔥💖🎵🎤🔍🌐🔬🌍✍️🕷️📸💭🤗😅😴🤔🫣😤]', '', t)
-    t = re.sub(r'\s+', ' ', t).strip()
-    if len(t) > 500:
-        t = t[:497] + "..."
-    return t
-
-async def text_to_voice_edge(text):
-    """Convert text to voice note using Edge TTS (free)."""
-    try:
-        tmp_mp3 = f"/tmp/tts_{int(time.time()*1000)}.mp3"
-        tmp_ogg = tmp_mp3.replace(".mp3", ".ogg")
-        communicate = edge_tts.Communicate(text, EDGE_TTS_VOICE, rate=EDGE_TTS_RATE)
-        await communicate.save(tmp_mp3)
-        proc = await asyncio.create_subprocess_exec(
-            "ffmpeg", "-y", "-i", tmp_mp3, "-c:a", "libopus", "-b:a", "32k", "-ar", "16000", tmp_ogg,
-            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
-        )
-        await proc.wait()
-        with open(tmp_ogg, "rb") as f:
-            voice_bytes = f.read()
-        os.remove(tmp_mp3)
-        if os.path.exists(tmp_ogg):
-            os.remove(tmp_ogg)
-        return voice_bytes if len(voice_bytes) > 100 else None
-    except Exception as e:
-        logger.error(f"Edge TTS error: {e}")
-        return None
-
-async def text_to_voice_elevenlabs(text):
-    """Convert text to voice note using ElevenLabs (anime voice)."""
-    if not ELEVENLABS_API_KEY:
-        return None
-    try:
-        def _generate():
-            from elevenlabs.client import ElevenLabs
-            client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
-            audio = client.text_to_speech.convert(
-                text=text,
-                voice_id=ELEVENLABS_VOICE,
-                model_id=ELEVENLABS_MODEL,
-                output_format="mp3_44100_128",
-            )
-            tmp_mp3 = f"/tmp/tts_el_{int(time.time()*1000)}.mp3"
-            tmp_ogg = tmp_mp3.replace(".mp3", ".ogg")
-            with open(tmp_mp3, "wb") as f:
-                for chunk in audio:
-                    f.write(chunk)
-            return tmp_mp3, tmp_ogg
-        tmp_mp3, tmp_ogg = await asyncio.to_thread(_generate)
-        proc = await asyncio.create_subprocess_exec(
-            "ffmpeg", "-y", "-i", tmp_mp3, "-c:a", "libopus", "-b:a", "48k", "-ar", "24000", tmp_ogg,
-            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
-        )
-        await proc.wait()
-        with open(tmp_ogg, "rb") as f:
-            voice_bytes = f.read()
-        os.remove(tmp_mp3)
-        if os.path.exists(tmp_ogg):
-            os.remove(tmp_ogg)
-        return voice_bytes if len(voice_bytes) > 100 else None
-    except Exception as e:
-        logger.error(f"ElevenLabs TTS error: {e}")
-        return None
-
-async def text_to_voice(text, user_id=0):
-    """Unified TTS: dispatches to ElevenLabs (anime) or Edge TTS (normal)."""
-    cleaned = clean_text_for_tts(text)
-    if not cleaned:
-        return None
-    voice_mode = ai_voice.get(user_id, "off")
-    if voice_mode == "anime":
-        result = await text_to_voice_elevenlabs(cleaned)
-        if result:
-            return result
-        return await text_to_voice_edge(cleaned)
-    elif voice_mode == "normal":
-        return await text_to_voice_edge(cleaned)
-    return None
-
 # ── Calculator / Math ────────────────────────────────────────────────
 
 import sympy
@@ -1106,14 +1002,6 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
             if result is not None:
                 reply = f"🧮 Hasilnya: **{result}** sayang~"
                 await send_long_message(chat_id, reply)
-                voice_mode = ai_voice.get(user_id, "off")
-                if voice_mode in ("normal", "anime"):
-                    voice = await text_to_voice(f"Hasilnya {result} sayang", user_id)
-                    if voice:
-                        try:
-                            await bot.send_voice(chat_id=chat_id, voice=voice)
-                        except TelegramError:
-                            pass
                 return
 
     search_intent = detect_search_intent(text)
@@ -1336,16 +1224,6 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
 
     touch_user_state(user_id)
     await send_long_message(chat_id, reply)
-
-    # Voice reply (if enabled)
-    voice_mode = ai_voice.get(user_id, "off")
-    if voice_mode in ("normal", "anime"):
-        try:
-            voice_bytes = await text_to_voice(reply, user_id)
-            if voice_bytes:
-                await bot.send_voice(chat_id=chat_id, voice=voice_bytes)
-        except Exception as e:
-            logger.error(f"Voice reply error: {e}")
 
     # Auto-react emoji based on context + mood (if enabled)
     if ai_react.get(user_id, False):
@@ -1739,26 +1617,6 @@ async def route_update(update: Update):
         ai_react[user_id] = not current
         status = "ON ✨" if not current else "OFF ⚪"
         await bot.send_message(chat_id=chat_id, text=f"Auto-react {status} sayang~ {'Aku bakal kirim emoji setiap respon ya!' if not current else 'Aku diam aja dulu ya~'}")
-        return
-
-    if text.startswith("/voice"):
-        arg = text.replace("/voice", "").strip().lower()
-        current = ai_voice.get(user_id, "off")
-        if arg in ("anime", "normal", "off"):
-            ai_voice[user_id] = arg
-        elif current == "off":
-            ai_voice[user_id] = "normal"
-        elif current == "normal":
-            ai_voice[user_id] = "anime"
-        else:
-            ai_voice[user_id] = "off"
-        mode = ai_voice[user_id]
-        msgs = {
-            "anime": "Voice mode: ANIME 🎤✨ Suara cute ala anime yaa~",
-            "normal": "Voice mode: NORMAL 🎤 Suara GadisNeural (Edge TTS)",
-            "off": "Voice OFF ⚪ Aku balas teks aja ya~",
-        }
-        await bot.send_message(chat_id=chat_id, text=msgs[mode])
         return
 
     if text.startswith("/delete history"):
