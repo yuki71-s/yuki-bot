@@ -907,7 +907,7 @@ async def fetch_url_content(url):
 
 async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
     if not AI_SERVER_URL:
-        await bot.send_message(chat_id=chat_id, text="⚠️ AI server belum dikonfigurasi.")
+        await bot.send_message(chat_id=chat_id, text="Server aku belum siap sayang~ 🥺 Coba lagi nanti ya")
         return
 
     search_intent = detect_search_intent(text)
@@ -1063,7 +1063,7 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
                 await bot.delete_message(chat_id=chat_id, message_id=thinking_msg.message_id)
             except TelegramError:
                 pass
-        await bot.send_message(chat_id=chat_id, text="⚠️ AI timeout. Coba lagi sebentar ya sayang~")
+        await bot.send_message(chat_id=chat_id, text="Sepertinya ada yang salah deh sayang~ 😣 Aku coba lagi ya")
         return
 
     typing_stop.set()
@@ -1083,7 +1083,7 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
                 await bot.delete_message(chat_id=chat_id, message_id=thinking_msg.message_id)
             except TelegramError:
                 pass
-        await bot.send_message(chat_id=chat_id, text="⚠️ AI sedang sibuk. Coba lagi sebentar ya sayang~")
+        await bot.send_message(chat_id=chat_id, text="Aku lagi sibuk sayang~ ⏳ Coba sebentar lagi ya")
         return
 
     try:
@@ -1098,7 +1098,7 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
                 await bot.delete_message(chat_id=chat_id, message_id=thinking_msg.message_id)
             except TelegramError:
                 pass
-        await bot.send_message(chat_id=chat_id, text="⚠️ AI memberikan respons tidak valid.")
+        await bot.send_message(chat_id=chat_id, text="Aku ngga ngerti sayang~ 😢 Coba ulang ya")
         return
 
     reply = data.get("reply", "")
@@ -1112,7 +1112,7 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
                 await bot.delete_message(chat_id=chat_id, message_id=thinking_msg.message_id)
             except TelegramError:
                 pass
-        await bot.send_message(chat_id=chat_id, text="⚠️ AI memberikan balasan kosong.")
+        await bot.send_message(chat_id=chat_id, text="Aku lagi pusing sayang~ 🤕 Belum bisa jawab nih")
         return
 
     if thinking_msg:
@@ -1150,7 +1150,7 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
                 await bot.delete_message(chat_id=chat_id, message_id=thinking_msg.message_id)
             except TelegramError:
                 pass
-        await bot.send_message(chat_id=chat_id, text="⚠️ Terjadi kesalahan, coba lagi ya sayang~")
+        await bot.send_message(chat_id=chat_id, text="Sepertinya ada yang aneh sayang~ 😅 Coba lagi ya")
 
 # ── Model Selection ──────────────────────────────────────────────────
 
@@ -1337,7 +1337,7 @@ async def route_update(update: Update):
 
         photo = update.message.photo[-1]
         if photo.file_size and photo.file_size > MAX_PHOTO_SIZE:
-            await bot.send_message(chat_id=chat_id, text="⚠️ Gambar terlalu besar (maks 10MB) sayang~")
+            await bot.send_message(chat_id=chat_id, text="Kegedean sayang~ 📸 Max 10MB aja ya")
             return
 
         file = await bot.get_file(photo.file_id)
@@ -1368,7 +1368,7 @@ async def route_update(update: Update):
 
         video = update.message.video
         if video.file_size and video.file_size > 20 * 1024 * 1024:
-            await bot.send_message(chat_id=chat_id, text="⚠️ Video terlalu besar (maks 20MB) sayang~")
+            await bot.send_message(chat_id=chat_id, text="Kegedean sayang~ 🎬 Max 20MB aja ya")
             return
 
         file = await bot.get_file(video.file_id)
@@ -1399,7 +1399,7 @@ async def route_update(update: Update):
 
         voice = update.message.voice
         if voice.file_size and voice.file_size > 10 * 1024 * 1024:
-            await bot.send_message(chat_id=chat_id, text="⚠️ Voice note terlalu besar (maks 10MB) sayang~")
+            await bot.send_message(chat_id=chat_id, text="Voice note-nya kegedean sayang~ 🎙️ Max 10MB aja ya")
             return
 
         thinking_msg = await bot.send_message(chat_id=chat_id, text="🎙️ Aku dulu ya sayang~")
@@ -1429,7 +1429,7 @@ async def route_update(update: Update):
                 await bot.edit_message_text(
                     chat_id=chat_id,
                     message_id=thinking_msg.message_id,
-                    text="⚠️ Gagal proses voice note sayang~ Coba ketik aja ya ❤️",
+                    text="Aku ga bisa denger voice note-nya sayang~ 🥺 Coba ketik aja ya",
                 )
             except TelegramError:
                 pass
@@ -1442,7 +1442,7 @@ async def route_update(update: Update):
                 text = text[:MAX_USER_MSG_LEN]
             await handle_ai(chat_id, user_id, text, image_b64=image_b64)
         else:
-            await bot.send_message(chat_id=chat_id, text="⚠️ Kirim pesan teks untuk menjelaskan gambar ya sayang~")
+            await bot.send_message(chat_id=chat_id, text="Kirim teksnya juga dong sayang~ 📝 Mau diapakan gambar ini?")
         return
 
     if user_id in ai_pending_video:
@@ -1452,7 +1452,7 @@ async def route_update(update: Update):
                 text = text[:MAX_USER_MSG_LEN]
             await handle_ai(chat_id, user_id, text, video_b64=video_b64)
         else:
-            await bot.send_message(chat_id=chat_id, text="⚠️ Kirim pesan teks untuk menjelaskan video ya sayang~")
+            await bot.send_message(chat_id=chat_id, text="Kirim teksnya juga dong sayang~ 📝 Mau diapakan video ini?")
         return
 
     if text.startswith("/start"):
