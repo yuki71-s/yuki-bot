@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 
 import httpx
+import edge_tts
 from dotenv import load_dotenv
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import TelegramError
@@ -80,6 +81,7 @@ ai_search_engine: dict[int, str] = {}  # "tinyfish" atau "tavily"
 ai_pending_photo: dict[int, str] = {}
 ai_pending_video: dict[int, str] = {}
 ai_react: dict[int, bool] = {}  # Auto-react emoji toggle
+ai_voice: dict[int, bool] = {}  # Voice reply toggle
 
 _state_timestamps: dict[int, float] = defaultdict(float)
 _rate_limit: dict[int, float] = defaultdict(float)
@@ -711,6 +713,87 @@ def markdown_to_html(text):
     text = _re.sub(r'(?<!["\w])(https?://[^\s<>]+)', r'<a href="\1">\1</a>', text)
     return text
 
+# ── Voice Reply (Edge TTS) ──────────────────────────────────────────
+
+TTS_VOICE = "id-ID-GadisNeural"
+TTS_RATE = "+0%"
+
+async def text_to_voice(text):
+    """Convert text to voice note (OGG/Opus) using Edge TTS."""
+    try:
+        tmp_mp3 = f"/tmp/tts_{int(time.time()*1000)}.mp3"
+        tmp_ogg = tmp_mp3.replace(".mp3", ".ogg")
+
+        communicate = edge_tts.Communicate(text, TTS_VOICE, rate=TTS_RATE)
+        await communicate.save(tmp_mp3)
+
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg", "-y", "-i", tmp_mp3, "-c:a", "libopus", "-b:a", "32k", "-ar", "16000", tmp_ogg,
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.wait()
+
+        with open(tmp_ogg, "rb") as f:
+            voice_bytes = f.read()
+
+        os.remove(tmp_mp3)
+        if os.path.exists(tmp_ogg):
+            os.remove(tmp_ogg)
+
+        return voice_bytes if len(voice_bytes) > 100 else None
+    except Exception as e:
+        logger.error(f"TTS error: {e}")
+        return None
+
+# ── Calculator / Math ────────────────────────────────────────────────
+
+import sympy
+from sympy.parsing.sympy_parser import (
+    parse_expr, standard_transformations, implicit_multiplication_application,
+    convert_xor,
+)
+from sympy import pi, E, oo, sqrt, log, sin, cos, tan, factorial, Abs
+
+MATH_TRANSFORMS = standard_transformations + (implicit_multiplication_application, convert_xor)
+MATH_LOCAL_DICT = {
+    "pi": pi, "e": E, "inf": oo, "sqrt": sqrt,
+    "log": log, "ln": log, "sin": sin, "cos": cos, "tan": tan,
+    "factorial": factorial, "abs": Abs, "Abs": Abs,
+}
+
+def detect_math_expression(text):
+    """Detect if text is a math expression (pure calculation)."""
+    t = text.strip()
+    if len(t) > 200:
+        return None
+    math_chars = set("0123456789+-*/().^%sqrtincotalgfe xp")
+    non_math = [c for c in t.lower() if c not in math_chars and c != " "]
+    if len(non_math) > 2:
+        return None
+    if not re.search(r"\d", t):
+        return None
+    if re.search(r"[a-zA-Z]{3,}", t):
+        return None
+    has_op = re.search(r"[+\-*/^%]", t)
+    has_num = re.search(r"\d", t)
+    has_paren = "(" in t
+    has_func = bool(re.search(r"\b(sqrt|sin|cos|tan|log|ln|factorial|abs)\b", t.lower()))
+    if has_num and (has_op or has_func or has_paren):
+        return t
+    return None
+
+def calculate_math(expr_text):
+    """Evaluate math expression safely using sympy."""
+    try:
+        result = sympy.sympify(expr_text, locals=MATH_LOCAL_DICT, transformations=MATH_TRANSFORMS)
+        if result == sympy.nan or result == oo or result == -oo:
+            return None, "Hasilnya tak hingga atau tidak terdefinisi sayang~"
+        result_str = str(result.evalf(12)).rstrip("0").rstrip(".")
+        return result_str, None
+    except Exception as e:
+        logger.debug(f"Math parse error: {e}")
+        return None, None
+
 async def send_long_message(chat_id, text):
     html_text = markdown_to_html(escape_html(text))
     if len(html_text) <= MAX_MSG_LEN:
@@ -945,6 +1028,23 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
         await bot.send_message(chat_id=chat_id, text="Server aku belum siap sayang~ 🥺 Coba lagi nanti ya")
         return
 
+    # Math detection — handle locally, no API needed
+    if not image_b64 and not video_b64:
+        math_expr = detect_math_expression(text)
+        if math_expr:
+            result, error = calculate_math(math_expr)
+            if result is not None:
+                reply = f"🧮 Hasilnya: **{result}** sayang~"
+                await send_long_message(chat_id, reply)
+                if ai_voice.get(user_id):
+                    voice = await text_to_voice(f"Hasilnya {result} sayang")
+                    if voice:
+                        try:
+                            await bot.send_voice(chat_id=chat_id, voice=voice)
+                        except TelegramError:
+                            pass
+                return
+
     search_intent = detect_search_intent(text)
     if search_intent == "on":
         ai_search[user_id] = True
@@ -1165,6 +1265,17 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
 
     touch_user_state(user_id)
     await send_long_message(chat_id, reply)
+
+    # Voice reply (if enabled)
+    if ai_voice.get(user_id):
+        try:
+            voice_text = reply[:500]
+            voice_text = re.sub(r'[*_`#\[\]]', '', voice_text)
+            voice_bytes = await text_to_voice(voice_text)
+            if voice_bytes:
+                await bot.send_voice(chat_id=chat_id, voice=voice_bytes)
+        except Exception as e:
+            logger.error(f"Voice reply error: {e}")
 
     # Auto-react emoji based on context + mood (if enabled)
     if ai_react.get(user_id, False):
@@ -1558,6 +1669,15 @@ async def route_update(update: Update):
         ai_react[user_id] = not current
         status = "ON ✨" if not current else "OFF ⚪"
         await bot.send_message(chat_id=chat_id, text=f"Auto-react {status} sayang~ {'Aku bakal kirim emoji setiap respon ya!' if not current else 'Aku diam aja dulu ya~'}")
+        return
+
+    if text.startswith("/voice"):
+        current = ai_voice.get(user_id, False)
+        ai_voice[user_id] = not current
+        if not current:
+            await bot.send_message(chat_id=chat_id, text="Voice reply ON 🎤 Aku bakal kirimin suara juga setiap respon ya sayang~")
+        else:
+            await bot.send_message(chat_id=chat_id, text="Voice reply OFF ⚪ Aku balas teks aja dulu ya~")
         return
 
     if text.startswith("/delete history"):
