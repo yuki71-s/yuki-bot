@@ -79,6 +79,7 @@ ai_search: dict[int, bool] = {}
 ai_search_engine: dict[int, str] = {}  # "tinyfish" atau "tavily"
 ai_pending_photo: dict[int, str] = {}
 ai_pending_video: dict[int, str] = {}
+ai_react: dict[int, bool] = {}  # Auto-react emoji toggle
 
 _state_timestamps: dict[int, float] = defaultdict(float)
 _rate_limit: dict[int, float] = defaultdict(float)
@@ -636,6 +637,68 @@ async def transcribe_voice(audio_bytes, mime_type="audio/ogg"):
         logger.error(f"Transcribe error: {e}")
     return None
 
+def extract_youtube_video_id(url):
+    """Extract YouTube video ID from URL."""
+    import re as _re
+    patterns = [
+        r'(?:youtube\.com/watch\?.*?v=|youtu\.be/|youtube\.com/embed/|youtube\.com/v/|youtube\.com/shorts/)([a-zA-Z0-9_-]{11})',
+    ]
+    for p in patterns:
+        m = _re.search(p, url)
+        if m:
+            return m.group(1)
+    return None
+
+async def extract_youtube_transcript(video_id):
+    """Fetch YouTube transcript via youtube-transcript-api."""
+    try:
+        def _fetch():
+            from youtube_transcript_api import YouTubeTranscriptApi
+            ytt_api = YouTubeTranscriptApi()
+            try:
+                transcript = ytt_api.fetch(video_id, languages=["id", "en"])
+            except Exception:
+                transcript = ytt_api.fetch(video_id)
+            return " ".join([entry.text for entry in transcript.snippets])
+        return await asyncio.to_thread(_fetch)
+    except Exception as e:
+        logger.error(f"YouTube transcript error: {e}")
+        return None
+
+REACT_EMOJI = {
+    "search_tinyfish": "🔍",
+    "search_tavily": "🌐",
+    "research": "🔬",
+    "translate": "🌍",
+    "summarize": "📝",
+    "write": "✍️",
+    "extract": "📋",
+    "crawl": "🕷️",
+    "vision": "📸",
+    "normal": "💭",
+    "mood_senang": "😊",
+    "mood_sedih": "🤗",
+    "mood_marah": "😅",
+    "mood_excited": "🎉",
+    "mood_romantis": "💕",
+    "mood_lelah": "😴",
+    "mood_bingung": "🤔",
+    "mood_kesal": "🫣",
+}
+
+async def send_auto_react(chat_id, context, user_id=None, profile=None):
+    """Send auto-react emoji after response based on context and mood."""
+    emoji = REACT_EMOJI.get(context, "💭")
+    if user_id and profile:
+        mood = profile.get("mood_terakhir", "")
+        mood_key = f"mood_{mood}"
+        if mood_key in REACT_EMOJI:
+            emoji = REACT_EMOJI[mood_key]
+    try:
+        await bot.send_message(chat_id=chat_id, text=emoji)
+    except TelegramError:
+        pass
+
 async def typing_loop(chat_id, stop_event):
     """Send typing action every 3 seconds until stop_event is set."""
     while not stop_event.is_set():
@@ -880,6 +943,14 @@ def extract_urls(text):
     return is_url(text)
 
 async def fetch_url_content(url):
+    # YouTube special handling
+    video_id = extract_youtube_video_id(url)
+    if video_id:
+        transcript = await extract_youtube_transcript(video_id)
+        if transcript:
+            return {"type": "text", "content": f"[YOUTUBE VIDEO ID: {video_id}]\n[TRANSCRIPT]\n{transcript[:8000]}"}
+        return {"type": "text", "content": f"[YOUTUBE VIDEO ID: {video_id}]\n(Gagal mengambil transcript video ini)"}
+
     if not is_safe_url(url):
         logger.warning(f"Blocked unsafe URL: {url}")
         return None
@@ -999,8 +1070,14 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
 
     urls = extract_urls(text)
     url_content = None
+    is_youtube = False
     if urls and not image_b64 and not video_b64:
+        is_youtube = bool(extract_youtube_video_id(urls[0]))
         url_content = await fetch_url_content(urls[0])
+        # YouTube: force summarize mode, disable web search
+        if is_youtube:
+            web_search = False
+            skill_intent = "summarize"
 
     # Level 2: Load profile + memory + compress history
     profile = await load_user_profile(user_id)
@@ -1130,6 +1207,14 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
 
     touch_user_state(user_id)
     await send_long_message(chat_id, reply)
+
+    # Auto-react emoji based on context + mood (if enabled)
+    if ai_react.get(user_id, False):
+        try:
+            react_context = skill_intent if skill_intent else ("search_tinyfish" if web_search and search_engine == "tinyfish" else "search_tavily" if web_search else "vision" if image_b64 or video_b64 else "normal")
+            await send_auto_react(chat_id, react_context, user_id, profile)
+        except Exception:
+            pass
 
     # Level 2: Auto-extract facts + summarize memory (async, non-blocking)
     try:
@@ -1508,6 +1593,13 @@ async def route_update(update: Update):
             await bot.send_message(chat_id=chat_id, text="Kamu tidak punya akses ya sayang~ 😤")
             return
         await handle_models(chat_id, user_id)
+        return
+
+    if text.startswith("/react"):
+        current = ai_react.get(user_id, True)
+        ai_react[user_id] = not current
+        status = "ON ✨" if not current else "OFF ⚪"
+        await bot.send_message(chat_id=chat_id, text=f"Auto-react {status} sayang~ {'Aku bakal kirim emoji setiap respon ya!' if not current else 'Aku diam aja dulu ya~'}")
         return
 
     if text.startswith("/delete history"):
