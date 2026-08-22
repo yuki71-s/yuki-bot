@@ -439,6 +439,115 @@ def get_compressed_history(user_id, history):
     recent = history[80:]
     return [{"role": "system", "content": f"[RINGKASAN PERCAKAPAN SEBELUMNYA]\n{summary}"}] + recent
 
+# ── Tier 1 Adaptasi: Mood, Topic Interest, Adaptive Tone ──────────
+
+async def detect_mood(user_id, text):
+    """Detect mood user dari message terakhir via Gemini Flash Lite."""
+    if not text or len(text.strip()) < 3:
+        return
+    prompt = (
+        f"Pesan user: \"{text}\"\n\n"
+        "Detect mood/emosi user dari pesan di atas.\n"
+        "Return HANYA salah satu dari pilihan ini (tanpa penjelasan):\n"
+        "senang, sedih, marah, excited, biasa, sedang, lelah, romantis, bingung, kesal"
+    )
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{AI_SERVER_URL}/ask",
+                json={"question": prompt, "history": [], "model": "gemini", "skill": "mood_detect"},
+                timeout=15,
+            )
+        if resp.status_code == 200:
+            mood = resp.json().get("reply", "").strip().lower()
+            valid_moods = {"senang", "sedih", "marah", "excited", "biasa", "sedang", "lelah", "romantis", "bingung", "kesal"}
+            if mood in valid_moods:
+                await save_user_profile(user_id, "mood_terakhir", mood)
+                logger.info(f"Mood detected: {mood} for user {user_id}")
+    except Exception as e:
+        logger.error(f"Mood detect error: {e}")
+
+async def auto_extract_topics(user_id, history):
+    """Extract top 3 topik favorit user dari 5 chat terakhir. Tiap 5 user messages."""
+    count = _count_user_messages(history)
+    if count < 5 or count % 5 != 0:
+        return
+    recent = [m for m in history if m.get("role") == "user"][-5:]
+    if not recent:
+        return
+    conv_text = "\n".join([f"User: {m['content']}" for m in recent])
+    prompt = (
+        f"[PESAN USER TERAKHIR]\n{conv_text}\n\n"
+        "Extract top 3 topik utama yang dibahas user dari pesan di atas.\n"
+        "Return HANYA daftar topik dipisah koma, contoh: coding, AI, musik\n"
+        "Maksimal 3 topik, bahasa Indonesia."
+    )
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{AI_SERVER_URL}/ask",
+                json={"question": prompt, "history": [], "model": "gemini", "skill": "extract_topics"},
+                timeout=15,
+            )
+        if resp.status_code == 200:
+            topics = resp.json().get("reply", "").strip()
+            if topics:
+                await save_user_profile(user_id, "topik_favorit", topics)
+                logger.info(f"Topics updated: {topics} for user {user_id}")
+    except Exception as e:
+        logger.error(f"Auto-extract topics error: {e}")
+
+TONE_KEYWORDS = {
+    "pendek": ["kepanjangan", "terlalu panjang", "kependekan", "kurang panjang"],
+    "panjang": ["kependekan", "terlalu pendek", "kurang panjang", "tambah lagi"],
+    "emoji_banyak": ["kurang emoji", "tambah emoji", "lebih banyak emoji"],
+    "emoji_sedikit": ["kebanyakan emoji", "terlalu banyak emoji", "kurangin emoji"],
+}
+
+async def detect_tone_feedback(user_id, text):
+    """Detect jika user memberi feedback tentang response style."""
+    lower = text.lower()
+    for preference, keywords in TONE_KEYWORDS.items():
+        for kw in keywords:
+            if kw in lower:
+                if "pendek" in preference or "panjang" in preference:
+                    await save_user_profile(user_id, "preferensi_panjang", preference)
+                else:
+                    await save_user_profile(user_id, "preferensi_emoji", preference.replace("emoji_", ""))
+                logger.info(f"Tone feedback detected: {preference} for user {user_id}")
+                return True
+    return False
+
+async def auto_adapt(user_id, text, history):
+    """Main adaptation function — run async after each chat."""
+    try:
+        await detect_mood(user_id, text)
+        await auto_extract_topics(user_id, history)
+        await detect_tone_feedback(user_id, text)
+    except Exception as e:
+        logger.error(f"Auto-adapt error: {e}")
+
+def get_adaptation_text(profile):
+    """Build adaptation context dari profile untuk system prompt."""
+    if not profile:
+        return ""
+    lines = []
+    mood = profile.get("mood_terakhir", "")
+    topics = profile.get("topik_favorit", "")
+    panjang = profile.get("preferensi_panjang", "")
+    emoji_pref = profile.get("preferensi_emoji", "")
+    if mood:
+        lines.append(f"- Mood terakhir user: {mood}")
+    if topics:
+        lines.append(f"- Topik favorit user: {topics}")
+    if panjang:
+        lines.append(f"- Preferensi panjang response: {panjang}")
+    if emoji_pref:
+        lines.append(f"- Preferensi emoji: {emoji_pref}")
+    if not lines:
+        return ""
+    return "ADAPTASI USER:\n" + "\n".join(lines)
+
 # ── Helpers ──────────────────────────────────────────────────────────
 
 def is_authorized(user_id):
@@ -829,6 +938,7 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
     profile = await load_user_profile(user_id)
     profile_text = get_user_profile_text(profile)
     memory_text = await load_memories(user_id)
+    adaptation_text = get_adaptation_text(profile)
     history = get_compressed_history(user_id, ai_history.get(user_id, [])[:-1])
 
     payload = {
@@ -836,6 +946,7 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
         "history": history,
         "profile": profile_text,
         "memory": memory_text,
+        "adaptation": adaptation_text,
         "model": model_pref,
         "web_search": web_search,
         "search_engine": search_engine,
@@ -928,6 +1039,8 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
             await auto_extract_facts(user_id, ai_history.get(user_id, []))
             await auto_summarize_memory(user_id, ai_history.get(user_id, []))
             await auto_compress_history(user_id, ai_history.get(user_id, []))
+            # Tier 1 Adaptasi: mood, topics, tone
+            await auto_adapt(user_id, text, ai_history.get(user_id, []))
         except Exception as e:
             logger.error(f"Level 2 auto-tasks error: {e}")
 
