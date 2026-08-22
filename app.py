@@ -780,7 +780,6 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
 
     # Detect skill intent
     skill_intent = detect_skill_intent(text)
-    logger.info(f"DEBUG skill_intent={skill_intent} for text={text[:60]!r}")
     skill_urls = extract_urls(text) if skill_intent in ["extract", "crawl"] else []
 
     lock = _user_locks[user_id]
