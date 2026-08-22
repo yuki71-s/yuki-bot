@@ -1483,7 +1483,7 @@ async def route_update(update: Update):
 
     if update.message.photo:
         if not is_authorized(user_id):
-            await bot.send_message(chat_id=chat_id, text="Kamu tidak punya akses ya sayang~ 😤")
+            await bot.send_message(chat_id=chat_id, text="Kamu tidak punya akses, jangan coba-coba ya~😤")
             return
         if not check_rate_limit(user_id):
             await bot.send_message(chat_id=chat_id, text="Dikit-dikit sayang, jangan buru-buru ya~ ⏳")
@@ -1514,7 +1514,7 @@ async def route_update(update: Update):
 
     if update.message.video:
         if not is_authorized(user_id):
-            await bot.send_message(chat_id=chat_id, text="Kamu tidak punya akses ya sayang~ 😤")
+            await bot.send_message(chat_id=chat_id, text="Kamu tidak punya akses, jangan coba-coba ya~😤")
             return
         if not check_rate_limit(user_id):
             await bot.send_message(chat_id=chat_id, text="Dikit-dikit sayang, jangan buru-buru ya~ ⏳")
@@ -1545,7 +1545,7 @@ async def route_update(update: Update):
 
     if update.message.voice:
         if not is_authorized(user_id):
-            await bot.send_message(chat_id=chat_id, text="Kamu tidak punya akses ya sayang~ 😤")
+            await bot.send_message(chat_id=chat_id, text="Kamu tidak punya akses, jangan coba-coba ya~😤")
             return
         if not check_rate_limit(user_id):
             await bot.send_message(chat_id=chat_id, text="Dikit-dikit sayang, jangan buru-buru ya~ ⏳")
@@ -1659,7 +1659,7 @@ async def route_update(update: Update):
 
     if text.startswith("/models"):
         if not is_authorized(user_id):
-            await bot.send_message(chat_id=chat_id, text="Kamu tidak punya akses ya sayang~ 😤")
+            await bot.send_message(chat_id=chat_id, text="Kamu tidak punya akses, jangan coba-coba ya~😤")
             return
         await handle_models(chat_id, user_id)
         return
@@ -1682,14 +1682,14 @@ async def route_update(update: Update):
 
     if text.startswith("/delete history"):
         if not is_authorized(user_id):
-            await bot.send_message(chat_id=chat_id, text="Kamu tidak punya akses ya sayang~ 😤")
+            await bot.send_message(chat_id=chat_id, text="Kamu tidak punya akses, jangan coba-coba ya~😤")
             return
         args = text[len("/delete history"):].strip()
         await handle_delete_history(chat_id, user_id, args)
         return
 
     if not is_authorized(user_id):
-        await bot.send_message(chat_id=chat_id, text="Kamu tidak punya akses ya sayang~ 😤")
+        await bot.send_message(chat_id=chat_id, text="Kamu tidak punya akses, jangan coba-coba ya~😤")
         return
 
     if text and not text.startswith("/"):
