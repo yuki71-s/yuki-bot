@@ -718,7 +718,7 @@ def markdown_to_html(text):
 
 EDGE_TTS_VOICE = "id-ID-GadisNeural"
 EDGE_TTS_RATE = "+0%"
-ELEVENLABS_VOICE = "cgSgspJ2msm6clMCkdW9"  # Jessica — Playful, Bright, Warm, Young
+ELEVENLABS_VOICE = "n7534fCgBXcPEM82JQYu"  # Pipi - Cute & Anime
 ELEVENLABS_MODEL = "eleven_multilingual_v2"
 
 def clean_text_for_tts(text):
