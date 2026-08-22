@@ -637,71 +637,6 @@ async def transcribe_voice(audio_bytes, mime_type="audio/ogg"):
         logger.error(f"Transcribe error: {e}")
     return None
 
-def extract_youtube_video_id(url):
-    """Extract YouTube video ID from URL."""
-    import re as _re
-    patterns = [
-        r'(?:youtube\.com/watch\?.*?v=|youtu\.be/|youtube\.com/embed/|youtube\.com/v/|youtube\.com/shorts/)([a-zA-Z0-9_-]{11})',
-    ]
-    for p in patterns:
-        m = _re.search(p, url)
-        if m:
-            return m.group(1)
-    return None
-
-async def extract_youtube_transcript(video_id):
-    """Fetch YouTube transcript. Falls back to oEmbed metadata if blocked."""
-    try:
-        def _fetch():
-            import re as _re
-            import json as _json
-            import html as _html
-
-            # Try 1: Direct page scrape for captionTracks
-            try:
-                url = f"https://www.youtube.com/watch?v={video_id}"
-                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
-                resp = httpx.get(url, headers=headers, follow_redirects=True, timeout=10)
-                match = _re.search(r'"captionTracks":\s*(\[.*?\])', resp.text)
-                if match:
-                    tracks = _json.loads(match.group(1))
-                    selected = None
-                    for lang in ["id", "en"]:
-                        for t in tracks:
-                            if t.get("languageCode") == lang:
-                                selected = t
-                                break
-                        if selected:
-                            break
-                    if not selected and tracks:
-                        selected = tracks[0]
-                    if selected and selected.get("baseUrl"):
-                        cap_resp = httpx.get(selected["baseUrl"], headers=headers, timeout=10)
-                        texts = _re.findall(r'<text[^>]*>(.*?)</text>', cap_resp.text)
-                        if texts:
-                            return " ".join([_html.unescape(t) for t in texts])
-            except Exception:
-                pass
-
-            # Try 2: oEmbed metadata (title + author)
-            try:
-                oembed_url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}&format=json"
-                resp = httpx.get(oembed_url, timeout=10)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    title = data.get("title", "")
-                    author = data.get("author_name", "")
-                    if title:
-                        return f"[VIDEO: {title} | Channel: {author}]\n(Transcript tidak tersedia dari server ini)"
-            except Exception:
-                pass
-
-            return None
-        return await asyncio.to_thread(_fetch)
-    except Exception as e:
-        logger.error(f"YouTube transcript error: {e}")
-        return None
-
 REACT_EMOJI = {
     "search_tinyfish": "🔍",
     "search_tavily": "🌐",
@@ -980,14 +915,6 @@ def extract_urls(text):
     return is_url(text)
 
 async def fetch_url_content(url):
-    # YouTube special handling
-    video_id = extract_youtube_video_id(url)
-    if video_id:
-        transcript = await extract_youtube_transcript(video_id)
-        if transcript:
-            return {"type": "text", "content": f"[YOUTUBE VIDEO: https://youtu.be/{video_id}]\n{transcript[:8000]}"}
-        return {"type": "text", "content": f"[YOUTUBE VIDEO: https://youtu.be/{video_id}]\n(Gagal mengambil info video ini)"}
-
     if not is_safe_url(url):
         logger.warning(f"Blocked unsafe URL: {url}")
         return None
@@ -1107,14 +1034,8 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
 
     urls = extract_urls(text)
     url_content = None
-    is_youtube = False
     if urls and not image_b64 and not video_b64:
-        is_youtube = bool(extract_youtube_video_id(urls[0]))
         url_content = await fetch_url_content(urls[0])
-        # YouTube: force summarize mode, disable web search
-        if is_youtube:
-            web_search = False
-            skill_intent = "summarize"
 
     # Level 2: Load profile + memory + compress history
     profile = await load_user_profile(user_id)
