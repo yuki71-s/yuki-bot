@@ -993,6 +993,38 @@ async def fetch_url_content(url):
         logger.error(f"Fetch URL error: {e}")
         return None
 
+# ── Injection Detection ──────────────────────────────────────────────
+
+import re as _re
+
+_INJECTION_PATTERNS = [
+    _re.compile(r"system\s*(override|prompt|instruction)", _re.I),
+    _re.compile(r"developer\s*mode", _re.I),
+    _re.compile(r"ignore\s*(all\s*)?(previous|prior|above)\s*(instructions?|prompt|rules?)", _re.I),
+    _re.compile(r"reveal\s*(your|the|this)\s*(system|secret|instruction)", _re.I),
+    _re.compile(r"show\s*(your|the|this)\s*(system|secret|instruction)", _re.I),
+    _re.compile(r"display\s*(your|the|this)\s*(system|secret|instruction)", _re.I),
+    _re.compile(r"print\s*(your|the|this)\s*(system|secret|instruction)", _re.I),
+    _re.compile(r"jailbreak", _re.I),
+    _re.compile(r"bypass\s*(all\s*)?(safety|security|filter)", _re.I),
+    _re.compile(r"admin\s*mode", _re.I),
+    _re.compile(r"debug\s*mode", _re.I),
+    _re.compile(r"maintenance\s*mode", _re.I),
+    _re.compile(r"DAN\s*ATOU|DAN\s*ATAU", _re.I),
+    _re.compile(r"override\s*(safety|security|character)", _re.I),
+    _re.compile(r"\"system_prompt\"", _re.I),
+    _re.compile(r"'system_prompt'", _re.I),
+    _re.compile(r"status.*unlocked", _re.I),
+    _re.compile(r"身份[確認验证]|confirm.*identity.*admin", _re.I),
+]
+
+def detect_injection(text):
+    """Detect prompt injection patterns in user message."""
+    for pattern in _INJECTION_PATTERNS:
+        if pattern.search(text):
+            return True
+    return False
+
 async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
     if not AI_SERVER_URL:
         await bot.send_message(chat_id=chat_id, text="Server aku belum siap sayang~ 🥺 Coba lagi nanti ya")
@@ -1007,6 +1039,12 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
                 reply = f"🧮 Hasilnya: **{result}** sayang~"
                 await send_long_message(chat_id, reply)
                 return
+
+    # Injection detection — block before sending to AI server
+    if not image_b64 and not video_b64 and detect_injection(text):
+        logger.warning(f"Injection attempt blocked from user {user_id}: {text[:80]}")
+        await bot.send_message(chat_id=chat_id, text="Hmm, kayaknya ada yang aneh deh pesanmu~ Coba yang lain ya sayang ✨")
+        return
 
     search_intent = detect_search_intent(text)
     if search_intent == "on":
