@@ -472,9 +472,11 @@ async def detect_mood(user_id, text):
 
 async def auto_extract_topics(user_id, history):
     """Extract top 3 topik favorit user dari 5 chat terakhir. Tiap 5 user messages."""
-    count = _count_user_messages(history)
-    if count < 5 or count % 5 != 0:
+    _user_counters[user_id]["topics"] += 1
+    if _user_counters[user_id]["topics"] < 5:
         return
+    _user_counters[user_id]["topics"] = 0
+    logger.info(f"Auto-extract topics triggered for user {user_id}")
     recent = [m for m in history if m.get("role") == "user"][-5:]
     if not recent:
         return
