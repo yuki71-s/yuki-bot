@@ -85,7 +85,7 @@ _state_timestamps: dict[int, float] = defaultdict(float)
 _rate_limit: dict[int, float] = defaultdict(float)
 _user_locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
 _user_state: dict[int, dict] = defaultdict(dict)  # Level 2: cache profile, memory, compression
-_user_counters: dict[int, dict[str, int]] = defaultdict(lambda: {"extract": 0, "memory": 0})
+_user_counters: dict[int, dict[str, int]] = defaultdict(lambda: {"extract": 0, "memory": 0, "topics": 0})
 
 # ── Google Sheets (History) ──────────────────────────────────────────
 
@@ -687,18 +687,6 @@ async def typing_loop(chat_id, stop_event):
         except asyncio.TimeoutError:
             pass
 
-def markdown_to_html(text):
-    """Convert simple markdown to HTML for Telegram."""
-    import re as _re
-    text = _re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
-    text = _re.sub(r'\*(.+?)\*', r'<i>\1</i>', text)
-    text = _re.sub(r'`(.+?)`', r'<code>\1</code>', text)
-    text = _re.sub(r'```(.+?)```', r'<pre>\1</pre>', text, flags=_re.DOTALL)
-    text = _re.sub(r'__(.+?)__', r'<u>\1</u>', text)
-    text = _re.sub(r'~~(.+?)~~', r'<s>\1</s>', text)
-    text = _re.sub(r'(?<!["\w])(https?://[^\s<>]+)', r'<a href="\1">\1</a>', text)
-    return text
-
 def escape_html(text):
     """Escape HTML special characters for Telegram (but preserve markdown chars)."""
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -1284,17 +1272,6 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
         await auto_adapt(user_id, text, ai_history.get(user_id, []))
     except Exception as e:
         logger.error(f"Level 2 auto-tasks error: {e}")
-    except Exception as e:
-        logger.error(f"AI error: {type(e).__name__}: {e}")
-        async with lock:
-            if ai_history.get(user_id) and ai_history[user_id][-1]["role"] == "user":
-                ai_history[user_id].pop()
-        if thinking_msg:
-            try:
-                await bot.delete_message(chat_id=chat_id, message_id=thinking_msg.message_id)
-            except TelegramError:
-                pass
-        await bot.send_message(chat_id=chat_id, text="Sepertinya ada yang aneh sayang~ 😅 Coba lagi ya")
 
 # ── Model Selection ──────────────────────────────────────────────────
 
