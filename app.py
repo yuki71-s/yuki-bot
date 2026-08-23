@@ -85,6 +85,7 @@ _state_timestamps: dict[int, float] = defaultdict(float)
 _rate_limit: dict[int, float] = defaultdict(float)
 _user_locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
 _user_state: dict[int, dict] = defaultdict(dict)  # Level 2: cache profile, memory, compression
+_user_counters: dict[int, dict[str, int]] = defaultdict(lambda: {"extract": 0, "memory": 0})
 
 # ── Google Sheets (History) ──────────────────────────────────────────
 
@@ -319,14 +320,13 @@ def get_user_profile_text(profile):
 
 # ── Auto-Extract Facts & Memory (every N chats) ──
 
-def _count_user_messages(history):
-    return sum(1 for m in history if m.get("role") == "user")
-
 async def auto_extract_facts(user_id, history):
     """Extract user facts setiap 10 chat."""
-    count = _count_user_messages(history)
-    if count < 10 or count % 10 != 0:
+    _user_counters[user_id]["extract"] += 1
+    if _user_counters[user_id]["extract"] < 10:
         return
+    _user_counters[user_id]["extract"] = 0
+    logger.info(f"Auto-extract triggered for user {user_id}")
     try:
         recent = history[-10:]
         conv_text = "\n".join([f"{'User' if m['role']=='user' else 'Yuki'}: {m['content']}" for m in recent])
@@ -360,9 +360,11 @@ async def auto_extract_facts(user_id, history):
 
 async def auto_summarize_memory(user_id, history):
     """Summarize conversation setiap 20 chat."""
-    count = _count_user_messages(history)
-    if count < 20 or count % 20 != 0:
+    _user_counters[user_id]["memory"] += 1
+    if _user_counters[user_id]["memory"] < 20:
         return
+    _user_counters[user_id]["memory"] = 0
+    logger.info(f"Auto-summarize memory triggered for user {user_id}")
     try:
         recent = history[-20:]
         conv_text = "\n".join([f"{'User' if m['role']=='user' else 'Yuki'}: {m['content']}" for m in recent])
