@@ -889,6 +889,12 @@ RESEARCH_KEYWORDS = [
     r"\bresearch\b", r"\briset\b", r"\briset\b",
     r"\bdeep\s*search\b", r"\bpenelitian\b", r"\banalisis\s*deep\b",
 ]
+WEATHER_KEYWORDS = [
+    r"\bcuaca\b", r"\bweather\b", r"\btemperature\b", r"\bsuhu\s*(?:udara|di)\b",
+    r"\bcek\s*cuaca\b", r"\binfo\s*cuaca\b", r"\bforecast\b",
+    r"\bhujan\b", r"\bpanas\b", r"\bdingin\b", r"\bberawan\b",
+    r"\bегодня\s*cuaca\b", r"\bminecraft\s*cuaca\b",
+]
 
 def detect_search_intent(text):
     lower = text.lower()
@@ -935,6 +941,10 @@ def detect_skill_intent(text):
     for kw in TRANSLATE_KEYWORDS:
         if re.search(kw, lower):
             return "translate"
+    # Cek weather (SEBELUM research agar "cuaca" tidak tertangkap research)
+    for kw in WEATHER_KEYWORDS:
+        if re.search(kw, lower):
+            return "weather"
     # Cek research
     for kw in RESEARCH_KEYWORDS:
         if re.search(kw, lower):
