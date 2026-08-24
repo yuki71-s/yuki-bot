@@ -1038,6 +1038,25 @@ def detect_injection(text):
             return True
     return False
 
+async def detect_intent_via_server(text):
+    """Hybrid router: tanya AI server skill apa yang dibutuhkan pesan ini.
+    Gagal/salah -> None -> lanjut chat normal (fail-safe)."""
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            r = await client.post(
+                f"{AI_SERVER_URL}/intent",
+                json={"text": text[:800]},
+                headers=_ai_headers(),
+            )
+        if r.status_code == 200:
+            d = r.json()
+            if isinstance(d, dict) and d.get("skill") and d["skill"] != "none":
+                return d
+    except Exception as e:
+        logger.error(f"Intent router error: {e}")
+    return None
+
+
 async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
     if not AI_SERVER_URL:
         await bot.send_message(chat_id=chat_id, text="Server aku belum siap sayang~ 🥺 Coba lagi nanti ya")
@@ -1108,6 +1127,12 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
     skill_intent = detect_skill_intent(text)
     skill_urls = extract_urls(text) if skill_intent in ["extract", "crawl"] else []
 
+    # Hybrid router: tanpa keyword eksplisit -> minta AI server deteksi niat
+    router = None
+    if (not search_intent and not skill_intent and not image_b64 and not video_b64
+            and len(text.split()) >= 2 and not text.startswith("/")):
+        router = await detect_intent_via_server(text)
+
     lock = _user_locks[user_id]
     async with lock:
         if user_id not in ai_history:
@@ -1122,6 +1147,19 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
     model_pref = ai_user_model.get(user_id, "")
     web_search = ai_search.get(user_id, False)
     search_engine = ai_search_engine.get(user_id, "tinyfish") if web_search else "tinyfish"
+
+    # Terapkan hasil router (one-shot, tidak mengubah toggle mode user)
+    if router:
+        rskill = router.get("skill")
+        if rskill == "search_web":
+            web_search = True
+            search_engine = router.get("engine") if router.get("engine") in ("tavily", "tinyfish") else "tavily"
+            logger.info(f"Router: search_web ({search_engine}) query='{router.get('query', '')[:60]}'")
+        elif rskill in ("weather", "translate", "summarize", "research", "write", "extract", "crawl"):
+            skill_intent = rskill
+            if rskill in ("extract", "crawl") and router.get("url"):
+                skill_urls = [router["url"]]
+            logger.info(f"Router: skill={rskill}")
 
     # Determine thinking context
     if skill_intent in ["extract", "crawl"]:
