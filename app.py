@@ -204,8 +204,9 @@ def _get_profile_ws_sync():
             ws = sh.add_worksheet("YukiProfile", rows=1000, cols=4)
             ws.update("A1:D1", [["user_id", "key", "value", "updated_at"]])
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            owner_id = os.getenv("ALLOWED_USERS", "").split(",")[0].strip() or "0"
             for k, v in [("nama", "Y71"), ("hobi", "oprek-oprek"), ("minuman_suka", "kopi americano"), ("lokasi", "di hati Yuki"), ("skill", "suka coding meskipun ngga bisa")]:
-                ws.append_row(["8575279550", k, v, now])
+                ws.append_row([owner_id, k, v, now])
             logger.info("Created YukiProfile worksheet with default Y71 data")
             return ws
     except Exception as e:
