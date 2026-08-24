@@ -32,6 +32,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 AI_SERVER_URL = os.getenv("AI_SERVER_URL", "")
 SHEET_ID = os.getenv("SHEET_ID", "")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
+AUTH_TOKEN = os.getenv("YUKI_AUTH_TOKEN", "")
 
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN harus diisi.")
@@ -41,6 +42,13 @@ if not AI_SERVER_URL:
 bot = Bot(token=BOT_TOKEN)
 
 BOT_NAME = "Yuki"
+
+def _ai_headers():
+    """Headers for AI server requests (auth token)."""
+    h = {}
+    if AUTH_TOKEN:
+        h["X-Auth-Token"] = AUTH_TOKEN
+    return h
 
 # ── Models ───────────────────────────────────────────────────────────
 
@@ -342,6 +350,7 @@ async def auto_extract_facts(user_id, history):
             resp = await client.post(
                 f"{AI_SERVER_URL}/ask",
                 json={"question": prompt, "history": [], "model": "gemini", "skill": "extract_facts"},
+                headers=_ai_headers(),
                 timeout=30,
             )
         if resp.status_code == 200:
@@ -380,6 +389,7 @@ async def auto_summarize_memory(user_id, history):
             resp = await client.post(
                 f"{AI_SERVER_URL}/ask",
                 json={"question": prompt, "history": [], "model": "gemini", "skill": "summarize_memory"},
+                headers=_ai_headers(),
                 timeout=30,
             )
         if resp.status_code == 200:
@@ -423,6 +433,7 @@ async def auto_compress_history(user_id, history):
             resp = await client.post(
                 f"{AI_SERVER_URL}/ask",
                 json={"question": prompt, "history": [], "model": "gemini"},
+                headers=_ai_headers(),
                 timeout=30,
             )
         if resp.status_code == 200:
@@ -459,6 +470,7 @@ async def detect_mood(user_id, text):
             resp = await client.post(
                 f"{AI_SERVER_URL}/ask",
                 json={"question": prompt, "history": [], "model": "gemini", "skill": "mood_detect"},
+                headers=_ai_headers(),
                 timeout=15,
             )
         if resp.status_code == 200:
@@ -492,6 +504,7 @@ async def auto_extract_topics(user_id, history):
             resp = await client.post(
                 f"{AI_SERVER_URL}/ask",
                 json={"question": prompt, "history": [], "model": "gemini", "skill": "extract_topics"},
+                headers=_ai_headers(),
                 timeout=15,
             )
         if resp.status_code == 200:
@@ -629,6 +642,7 @@ async def transcribe_voice(audio_bytes, mime_type="audio/ogg"):
             resp = await client.post(
                 f"{AI_SERVER_URL}/transcribe",
                 json={"audio": audio_b64, "mime_type": mime_type},
+                headers=_ai_headers(),
                 timeout=30,
             )
         if resp.status_code == 200:
@@ -1180,6 +1194,7 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
             response = await client.post(
                 f"{AI_SERVER_URL}/ask",
                 json=payload,
+                headers=_ai_headers(),
                 timeout=60,
             )
     except httpx.TimeoutException:
