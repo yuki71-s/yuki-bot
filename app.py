@@ -43,6 +43,51 @@ bot = Bot(token=BOT_TOKEN)
 
 BOT_NAME = "Yuki"
 
+ALERT_CHAT_ID = os.getenv("ALLOWED_USERS", "8575279550").split(",")[0].strip()
+
+class SecurityAlertLogger:
+    def __init__(self):
+        self.alert_cooldown = {}
+        self.COOLDOWN_SECONDS = {"low": 300, "medium": 120, "high": 60, "critical": 0}
+
+    def _severity_emoji(self, severity):
+        return {"low": "ℹ️", "medium": "⚠️", "high": "🚨", "critical": "🔥"}.get(severity, "❓")
+
+    async def alert(self, event_type, severity, details=None):
+        details = details or {}
+        now = time.time()
+        last = self.alert_cooldown.get(event_type, 0)
+        cooldown = self.COOLDOWN_SECONDS.get(severity, 60)
+        if now - last < cooldown:
+            return
+        self.alert_cooldown[event_type] = now
+        emoji = self._severity_emoji(severity)
+        ip = details.get("ip", "unknown")
+        user_id = details.get("user_id", "unknown")
+        preview = str(details.get("preview", ""))[:100]
+        now_wib = datetime.utcnow() + timedelta(hours=7)
+        text = (
+            f"{emoji} <b>SECURITY ALERT [{severity.upper()}]</b>\n\n"
+            f"<b>Event:</b> {event_type}\n"
+            f"<b>User:</b> <code>{user_id}</code>\n"
+            f"<b>IP:</b> <code>{ip}</code>\n"
+            f"<b>Time:</b> {now_wib.strftime('%Y-%m-%d %H:%M:%S')} WIB\n"
+        )
+        if preview:
+            text += f"<b>Preview:</b> <code>{preview}</code>\n"
+        if not BOT_TOKEN or not ALERT_CHAT_ID:
+            return
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                await client.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                    json={"chat_id": ALERT_CHAT_ID, "text": text, "parse_mode": "HTML"},
+                )
+        except Exception:
+            pass
+
+security_logger = SecurityAlertLogger()
+
 def _ai_headers():
     """Headers for AI server requests (auth token)."""
     h = {}
@@ -1075,6 +1120,7 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
     # Injection detection — block before sending to AI server
     if not image_b64 and not video_b64 and detect_injection(text):
         logger.warning(f"Injection attempt blocked from user {user_id}: {text[:80]}")
+        asyncio.create_task(security_logger.alert("injection_blocked", "high", {"user_id": user_id, "ip": "bot", "preview": text[:100]}))
         await bot.send_message(chat_id=chat_id, text="Hmm, kayaknya ada yang aneh deh pesanmu~ Coba yang lain ya sayang ✨")
         return
 
@@ -1459,6 +1505,12 @@ app = FastAPI(lifespan=lifespan)
 
 @app.post("/webhook")
 async def webhook(request: Request):
+    if WEBHOOK_SECRET:
+        secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+        if secret != WEBHOOK_SECRET:
+            logger.warning(f"Webhook tampering detected from {request.client.host}")
+            asyncio.create_task(security_logger.alert("webhook_tampering", "critical", {"ip": request.client.host, "preview": "Invalid secret token"}))
+            return JSONResponse(status_code=403, content={"error": "forbidden"})
     try:
         data = await request.json()
         update = Update.de_json(data, bot)
