@@ -36,6 +36,8 @@ AUTH_TOKEN = os.getenv("YUKI_AUTH_TOKEN", "")
 
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN harus diisi.")
+if not WEBHOOK_SECRET:
+    raise ValueError("WEBHOOK_SECRET harus diisi.")
 if not AI_SERVER_URL:
     raise ValueError("AI_SERVER_URL harus diisi.")
 
@@ -1506,12 +1508,11 @@ app = FastAPI(lifespan=lifespan)
 
 @app.post("/webhook")
 async def webhook(request: Request):
-    if WEBHOOK_SECRET:
-        secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
-        if secret != WEBHOOK_SECRET:
-            logger.warning(f"Webhook tampering detected from {request.client.host}")
-            asyncio.create_task(security_logger.alert("webhook_tampering", "critical", {"ip": request.client.host, "preview": "Invalid secret token"}))
-            return JSONResponse(status_code=403, content={"error": "forbidden"})
+    secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    if not WEBHOOK_SECRET or not hmac.compare_digest(secret, WEBHOOK_SECRET):
+        logger.warning(f"Webhook tampering detected from {request.client.host}")
+        asyncio.create_task(security_logger.alert("webhook_tampering", "critical", {"ip": request.client.host, "preview": "Invalid secret token"}))
+        return JSONResponse(status_code=403, content={"error": "forbidden"})
     try:
         data = await request.json()
         update = Update.de_json(data, bot)
