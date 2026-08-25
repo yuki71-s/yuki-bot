@@ -617,12 +617,13 @@ def get_adaptation_text(profile):
 def is_authorized(user_id):
     allowed = os.getenv("ALLOWED_USERS", "")
     if not allowed:
-        return True
+        logger.warning("ALLOWED_USERS is empty — defaulting to DENY ALL")
+        return False
     try:
         allowed_ids = [int(x.strip()) for x in allowed.split(",") if x.strip()]
     except ValueError:
-        logger.error("ALLOWED_USERS contains non-numeric values")
-        return True
+        logger.error("ALLOWED_USERS contains non-numeric values — defaulting to DENY ALL")
+        return False
     return user_id in allowed_ids
 
 def check_rate_limit(user_id):
@@ -1532,22 +1533,7 @@ async def health():
 
 @app.get("/setup-webhook")
 async def setup_webhook():
-    if not WEBHOOK_SECRET:
-        return JSONResponse(status_code=403, content={"error": "WEBHOOK_SECRET not configured"})
-    try:
-        webhook_url = os.getenv("WEBHOOK_URL", "")
-        if not webhook_url:
-            return JSONResponse(status_code=400, content={"error": "WEBHOOK_URL not set"})
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook"
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(url, json={
-                "url": webhook_url,
-                "allowed_updates": ["message", "callback_query"],
-                "drop_pending_updates": True,
-            })
-        return resp.json()
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+    return JSONResponse(status_code=403, content={"error": "Endpoint disabled for security. Use Telegram API directly."})
 
 
 # ── Route Update ─────────────────────────────────────────────────────
@@ -1788,6 +1774,11 @@ async def handle_callback(callback_query):
     data = callback_query.data
     if not callback_query.message:
         await bot.answer_callback_query(callback_query.id)
+        return
+
+    user_id = callback_query.from_user.id
+    if not is_authorized(user_id):
+        await bot.answer_callback_query(callback_query.id, text="Unauthorized", show_alert=True)
         return
 
     chat_id = callback_query.message.chat.id
