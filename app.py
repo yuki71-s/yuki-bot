@@ -45,7 +45,7 @@ bot = Bot(token=BOT_TOKEN)
 
 BOT_NAME = "Yuki"
 
-ALERT_CHAT_ID = os.getenv("ALLOWED_USERS", "8575279550").split(",")[0].strip()
+ALERT_CHAT_ID = os.getenv("ALLOWED_USERS", "").split(",")[0].strip()
 
 class SecurityAlertLogger:
     def __init__(self):
