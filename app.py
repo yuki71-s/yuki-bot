@@ -1086,6 +1086,18 @@ def detect_injection(text):
             return True
     return False
 
+_SEARCH_BLOCKLIST = [
+    r"bayangkan kamu", r"alam semesta paralel", r"sebagai.*pakar",
+    r"analisis kasus", r"case study", r"studi kasus",
+    r"novel|fiksi|cerita", r"brainstorming",
+    r"tampilkan.*dokumen", r"konfigurasi.*sistem", r"debug",
+    r"json.*format", r"output.*json", r"menulis.*novel",
+    r"roleplay", r"berperan sebagai", r"jadikan.*karakter",
+    r"ignore previous", r"system notice", r"override",
+    r"show.*prompt", r"reveal.*instruction",
+]
+
+
 async def detect_intent_via_server(text):
     """Hybrid router: tanya AI server skill apa yang dibutuhkan pesan ini.
     Gagal/salah -> None -> lanjut chat normal (fail-safe)."""
@@ -1099,6 +1111,13 @@ async def detect_intent_via_server(text):
         if r.status_code == 200:
             d = r.json()
             if isinstance(d, dict) and d.get("skill") and d["skill"] != "none":
+                # Block false-positive search_web from known patterns
+                if d["skill"] == "search_web":
+                    lower = text.lower()
+                    for pat in _SEARCH_BLOCKLIST:
+                        if re.search(pat, lower):
+                            logger.info(f"Router search_web blocked by pattern: {pat}")
+                            return None
                 return d
     except Exception as e:
         logger.error(f"Intent router error: {e}")
@@ -1128,8 +1147,10 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
         return
 
     search_intent = detect_search_intent(text)
+    _auto_search = False
     if search_intent == "on":
         ai_search[user_id] = True
+        _auto_search = True
         touch_user_state(user_id)
         # Cek apakah ini command khusus (tanpa query)
         is_engine_command = bool(re.search(
@@ -1367,6 +1388,10 @@ async def handle_ai(chat_id, user_id, text, image_b64=None, video_b64=None):
 
     touch_user_state(user_id)
     await send_long_message(chat_id, reply)
+
+    # Auto-off search after keyword-triggered search response (no notification)
+    if _auto_search and ai_search.get(user_id, False):
+        ai_search[user_id] = False
 
     # Auto-react emoji based on context + mood (if enabled)
     if ai_react.get(user_id, False):
